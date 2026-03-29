@@ -1,0 +1,36 @@
+dataContractSpecification: 1.1.0
+id: orders-v1
+info:
+  title: Orders
+  version: 1.0.0
+  description: Order data produced by the checkout service
+  owner: team-checkout
+  contact:
+    name: Checkout Team
+    email: checkout@company.com
+
+servers:
+  production:
+    type: postgres
+    host: db.company.com
+    port: 5432
+    database: warehouse
+    schema: orders
+
+models:
+  orders:
+    type: table
+    fields:
+      order_id:
+        type: text
+        required: true
+        unique: true
+      customer_id:
+        type: text
+        required: true
+      order_total:
+        type: integer
+        required: true
+      order_timestamp:
+        type: timestamp
+        required: true

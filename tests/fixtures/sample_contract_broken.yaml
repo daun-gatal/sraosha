@@ -1,0 +1,22 @@
+dataContractSpecification: 1.1.0
+id: broken-contract-v1
+info:
+  title: Broken Contract
+  version: 1.0.0
+  description: Contract with deliberate issues for testing
+
+models:
+  broken_table:
+    type: table
+    fields:
+      id:
+        type: integer
+        required: true
+      name:
+        type: text
+        required: true
+
+quality:
+  - type: sql
+    query: "SELECT COUNT(*) FROM nonexistent_table WHERE 1=0"
+    mustBe: 0

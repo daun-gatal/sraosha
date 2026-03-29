@@ -1,0 +1,40 @@
+dataContractSpecification: 1.1.0
+id: orders-drift-v1
+info:
+  title: Orders with Drift Config
+  version: 1.0.0
+  description: Order data with Sraosha drift detection configured
+  owner: team-checkout
+
+models:
+  orders:
+    type: table
+    fields:
+      order_id:
+        type: uuid
+        required: true
+        unique: true
+      customer_id:
+        type: text
+        required: true
+      order_total:
+        type: integer
+        required: true
+
+x-sraosha:
+  owner_team: team-checkout
+  enforcement_mode: block
+  drift_metrics:
+    - table: orders
+      column: customer_id
+      metric: null_rate
+      warning_threshold: 0.02
+      breach_threshold: 0.05
+    - table: orders
+      column: null
+      metric: row_count_delta
+      warning_threshold: 0.20
+      breach_threshold: 0.50
+  notify:
+    slack_channel: "#data-contracts"
+    email: "checkout-team@company.com"
