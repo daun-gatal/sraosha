@@ -325,11 +325,14 @@ def beat(
 @app.command("db")
 def db_upgrade():
     """Run database migrations (Alembic upgrade head)."""
+    from alembic import command
     from alembic.config import Config
 
-    from alembic import command
-
-    alembic_cfg = Config("alembic.ini")
+    ini_path = Path(sraosha.__file__).resolve().parent / "alembic.ini"
+    if not ini_path.is_file():
+        console.print(f"[red]Alembic config not found at {ini_path} (incomplete install?).[/red]")
+        raise typer.Exit(1)
+    alembic_cfg = Config(str(ini_path))
     command.upgrade(alembic_cfg, "head")
     console.print("[green]Database upgraded successfully.[/green]")
 

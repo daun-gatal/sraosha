@@ -14,8 +14,6 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY sraosha/ ./sraosha/
-COPY alembic/ ./alembic/
-COPY alembic.ini .
 
 RUN pip install --no-cache-dir .
 
