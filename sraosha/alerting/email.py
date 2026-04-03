@@ -38,8 +38,11 @@ class EmailAlerter(BaseAlerter):
         msg["Subject"] = subject
         msg.attach(MIMEText(body, "plain"))
 
+        smtp_host = settings.SMTP_HOST
+        assert smtp_host is not None
+
         try:
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+            with smtplib.SMTP(smtp_host, settings.SMTP_PORT) as server:
                 server.starttls()
                 if settings.SMTP_USERNAME and settings.SMTP_PASSWORD:
                     server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)

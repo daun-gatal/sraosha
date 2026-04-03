@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -16,8 +16,8 @@ def _dict_representer(dumper: yaml.Dumper, data: dict) -> Any:
     return dumper.represent_mapping("tag:yaml.org,2002:map", data.items())
 
 
-_OrderedDumper.add_representer(dict, _dict_representer)
-_OrderedDumper.add_representer(OrderedDict, _dict_representer)
+_OrderedDumper.add_representer(dict, _dict_representer)  # type: ignore[arg-type]
+_OrderedDumper.add_representer(OrderedDict, _dict_representer)  # type: ignore[arg-type]
 
 
 def connection_id_to_name_map_from_connections(connections: list[Any]) -> dict[str, str]:
@@ -328,7 +328,10 @@ def yaml_dict_to_form(doc: dict) -> dict[str, Any]:
 
 def dict_to_yaml_string(doc: dict) -> str:
     """Render a data-contract dict as a YAML string."""
-    return yaml.dump(doc, Dumper=_OrderedDumper, default_flow_style=False, sort_keys=False)
+    return cast(
+        str,
+        yaml.dump(doc, Dumper=_OrderedDumper, default_flow_style=False, sort_keys=False),
+    )
 
 
 def yaml_string_to_dict(raw: str) -> dict:

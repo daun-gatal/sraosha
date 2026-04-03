@@ -51,6 +51,9 @@ dev = [
     "mypy~=1.19.1",
     "aiosqlite~=0.22.1",
     "pre-commit~=4.5.1",
+    "types-PyYAML~=6.0.12.20250915",
+    "types-PyMySQL~=1.1.0.20251220",
+    "types-croniter~=6.2.2.20260402",
 ]
 
 [tool.ruff]

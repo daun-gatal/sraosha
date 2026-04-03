@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid as uuid_mod
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -39,7 +40,8 @@ def _compute_next_run(preset: str, cron_expr: str | None) -> datetime:
         from croniter import croniter
 
         cron = croniter(cron_expr, now)
-        return cron.get_next(datetime).replace(tzinfo=timezone.utc)
+        next_run = cast(datetime, cron.get_next(datetime))
+        return next_run.replace(tzinfo=timezone.utc)
     seconds = PRESET_SECONDS.get(preset, 86400)
     return now + timedelta(seconds=seconds)
 

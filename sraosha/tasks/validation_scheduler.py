@@ -11,6 +11,7 @@ import logging
 import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any, cast
 
 from sraosha.tasks.celery_app import celery_app
 
@@ -30,7 +31,8 @@ def _compute_next_run(preset: str, cron_expr: str | None, from_dt: datetime) -> 
         from croniter import croniter
 
         cron = croniter(cron_expr, from_dt)
-        return cron.get_next(datetime).replace(tzinfo=timezone.utc)
+        next_run = cast(datetime, cron.get_next(datetime))
+        return next_run.replace(tzinfo=timezone.utc)
 
     seconds = PRESET_SECONDS.get(preset, 86400)
     return from_dt + timedelta(seconds=seconds)
@@ -93,8 +95,8 @@ def _resolve_scheduler_creds(cur, raw_yaml: str) -> tuple:
             if crow:
                 return _parse_cred_row(crow)
 
-        first_type = next(iter(servers.values()), {})
-        first_type = first_type.get("type", "") if isinstance(first_type, dict) else ""
+        first_server: Any = next(iter(servers.values()), {})
+        first_type: str = first_server.get("type", "") if isinstance(first_server, dict) else ""
         if first_type:
             cur.execute(
                 f"SELECT {cols} FROM connections WHERE server_type = %s LIMIT 1",

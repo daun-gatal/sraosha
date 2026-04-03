@@ -96,7 +96,7 @@ class ContractDependencyGraph:
                             existing_shared.add(col)
                         edge["shared_fields"] = list(existing_shared)
                 else:
-                    shared = (
+                    explicit_shared_fields = (
                         [k.split(".")[-1] if "." in k else k for k in dep.fields]
                         if dep.fields
                         else []
@@ -104,7 +104,7 @@ class ContractDependencyGraph:
                     self.graph.add_edge(
                         upstream_id,
                         cf.contract_id,
-                        shared_fields=shared,
+                        shared_fields=explicit_shared_fields,
                         field_mapping=dict(dep.fields),
                         edge_type="explicit",
                     )

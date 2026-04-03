@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -341,10 +341,13 @@ def build_datasource_config(data_source_name: str, server_type: str, conn_params
     safe_name = sanitize_data_source_name(data_source_name)
     body = _build_connection_dict(soda_type, conn_params)
     root = {f"data_source {safe_name}": body}
-    return yaml.dump(
-        root,
-        default_flow_style=False,
-        sort_keys=False,
-        allow_unicode=True,
-        width=120,
+    return cast(
+        str,
+        yaml.dump(
+            root,
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+            width=120,
+        ),
     )

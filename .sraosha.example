@@ -26,10 +26,6 @@ API_PORT=8000
 CONTRACTS_DIR=./contracts
 DEFAULT_ENFORCEMENT_MODE=block
 
-# === Drift Detection ===
-DRIFT_SCAN_INTERVAL_SECONDS=3600
-DRIFT_BASELINE_WINDOW=14
-
 # === Slack Alerting ===
 SLACK_ENABLED=false
 # SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ

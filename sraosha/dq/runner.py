@@ -5,7 +5,7 @@ import logging
 import time
 import traceback
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from sraosha.dq.config_builder import build_datasource_config, sanitize_data_source_name
 
@@ -43,8 +43,8 @@ class DQRunResult:
 def _all_checks(scan: Any) -> list[Any]:
     fn = getattr(scan, "get_all_checks", None)
     if callable(fn):
-        return fn()
-    return scan._checks
+        return cast(list[Any], fn())
+    return cast(list[Any], scan._checks)
 
 
 def _outcome_status(scan: Any) -> str:

@@ -6,6 +6,7 @@ import json
 import uuid as uuid_mod
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any, cast
 
 import yaml
 from fastapi import APIRouter, Depends, Form, Query, Request
@@ -14,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from starlette.datastructures import UploadFile
 
 from sraosha.api.contract_yaml import (
     connection_id_to_name_map_from_connections,
@@ -46,6 +48,16 @@ from sraosha.schemas.dq_wizard import parse_dq_generate_params
 from sraosha.tasks.dq_scan import run_dq_check
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
+
+
+def _form_text(val: str | UploadFile | None, default: str = "") -> str:
+    """Coerce Starlette form values to ``str`` (HTML forms use strings; uploads are ignored)."""
+    if val is None:
+        return default
+    if isinstance(val, UploadFile):
+        return default
+    return val
+
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
@@ -568,12 +580,12 @@ async def _compliance_page_context(db: AsyncSession) -> dict:
     )
     recent_failures: list[dict] = []
     for r in fail_result.scalars().all():
-        c = next((x for x in all_contracts if x.contract_id == r.contract_id), None)
+        matched = next((x for x in all_contracts if x.contract_id == r.contract_id), None)
         recent_failures.append(
             {
                 "contract_id": r.contract_id,
                 "title": title_map.get(r.contract_id, r.contract_id),
-                "team": c.owner_team if c else None,
+                "team": matched.owner_team if matched else None,
                 "status": r.status,
                 "when": _relative_time(r.run_at),
             }
@@ -905,8 +917,9 @@ async def impact_link(
 
     field_mapping: dict[str, str] = {}
     for up, lo in zip(field_upstreams, field_locals):
-        if up and lo:
-            field_mapping[up] = lo
+        up_s, lo_s = _form_text(up), _form_text(lo)
+        if up_s and lo_s:
+            field_mapping[up_s] = lo_s
 
     result = await db.execute(select(Contract).where(Contract.contract_id == downstream_id))
     contract = result.scalar_one_or_none()
@@ -1013,7 +1026,7 @@ async def contracts_list(
     summary_result = await db.execute(summary_query)
     summary_map = {row.contract_id: row for row in summary_result.all()}
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     for c in contracts:
         s = summary_map.get(c.contract_id)
         total_runs = s.total_runs if s else 0
@@ -1043,18 +1056,24 @@ async def contracts_list(
         )
 
     if sort == "name":
-        rows.sort(key=lambda x: (x["title"] or "").lower())
+        rows.sort(key=lambda x: str(x.get("title") or "").lower())
     elif sort == "runs":
-        rows.sort(key=lambda x: -x["total_runs"])
+        rows.sort(key=lambda x: -int(x.get("total_runs") or 0))
     elif sort == "health":
 
-        def _health_key(x: dict) -> tuple:
+        def _health_key(x: dict[str, Any]) -> tuple[int, float]:
             order = {"failing": 0, "unknown": 1, "passing": 2}
-            return (order.get(x["status"], 9), -(x["pass_rate"] or 0))
+            st = str(x.get("status") or "")
+            pr = x.get("pass_rate")
+            pr_f = float(pr) if pr is not None else 0.0
+            return (order.get(st, 9), -pr_f)
 
         rows.sort(key=_health_key)
     else:
-        rows.sort(key=lambda x: x["created_at"], reverse=True)
+        rows.sort(
+            key=lambda x: cast(datetime, x["created_at"]),
+            reverse=True,
+        )
 
     teams = await _team_names_for_filter(db)
 
@@ -1263,15 +1282,15 @@ async def partial_discover_test(request: Request):
     from sraosha.api.introspect import SUPPORTED_TYPES, get_introspector
 
     form = await request.form()
-    server_type = form.get("server_type", "postgres")
+    server_type = _form_text(form.get("server_type"), "postgres")
     params = {
-        "host": form.get("host", ""),
-        "port": form.get("port", ""),
-        "database": form.get("database", ""),
-        "schema": form.get("schema", "public"),
-        "user": form.get("user", ""),
-        "password": form.get("password", ""),
-        "path": form.get("path", ""),
+        "host": _form_text(form.get("host")),
+        "port": _form_text(form.get("port")),
+        "database": _form_text(form.get("database")),
+        "schema": _form_text(form.get("schema"), "public"),
+        "user": _form_text(form.get("user")),
+        "password": _form_text(form.get("password")),
+        "path": _form_text(form.get("path")),
     }
 
     if server_type not in SUPPORTED_TYPES:
@@ -1321,15 +1340,15 @@ async def partial_discover_tables(request: Request):
     from sraosha.api.introspect import get_introspector
 
     form = await request.form()
-    server_type = form.get("server_type", "postgres")
-    schema = form.get("schema", "public") or "public"
+    server_type = _form_text(form.get("server_type"), "postgres")
+    schema = _form_text(form.get("schema"), "public") or "public"
     params = {
-        "host": form.get("host", ""),
-        "port": form.get("port", ""),
-        "database": form.get("database", ""),
-        "user": form.get("user", ""),
-        "password": form.get("password", ""),
-        "path": form.get("path", ""),
+        "host": _form_text(form.get("host")),
+        "port": _form_text(form.get("port")),
+        "database": _form_text(form.get("database")),
+        "user": _form_text(form.get("user")),
+        "password": _form_text(form.get("password")),
+        "path": _form_text(form.get("path")),
     }
 
     try:
@@ -1366,11 +1385,11 @@ async def partial_wizard_discover(request: Request, db: AsyncSession = Depends(g
     from sraosha.crypto import decrypt
 
     form = await request.form()
-    server_type = form.get("server_type", "postgres")
-    schema = form.get("schema", "public") or "public"
-    connection_id = form.get("connection_id", "")
+    server_type = _form_text(form.get("server_type"), "postgres")
+    schema = _form_text(form.get("schema"), "public") or "public"
+    connection_id = _form_text(form.get("connection_id"))
 
-    params: dict = {}
+    params: dict[str, str] = {}
     if connection_id:
         conn = await db.get(Connection, connection_id)
         if not conn:
@@ -1383,12 +1402,12 @@ async def partial_wizard_discover(request: Request, db: AsyncSession = Depends(g
         params["path"] = conn.path or ""
     else:
         params = {
-            "host": form.get("host", ""),
-            "port": form.get("port", ""),
-            "database": form.get("database", ""),
-            "user": form.get("user", ""),
-            "password": form.get("password", ""),
-            "path": form.get("path", ""),
+            "host": _form_text(form.get("host")),
+            "port": _form_text(form.get("port")),
+            "database": _form_text(form.get("database")),
+            "user": _form_text(form.get("user")),
+            "password": _form_text(form.get("password")),
+            "path": _form_text(form.get("path")),
         }
 
     try:
@@ -1500,8 +1519,9 @@ async def discover_generate(request: Request, db: AsyncSession = Depends(get_db)
 
         from sraosha.api.contract_yaml import dict_to_yaml_string
 
-        info = doc["info"]
-        xs2 = doc.get("x-sraosha", {}) if isinstance(doc.get("x-sraosha"), dict) else {}
+        info = cast(dict[str, Any], doc["info"])
+        xs_raw = doc.get("x-sraosha", {})
+        xs2: dict[str, Any] = xs_raw if isinstance(xs_raw, dict) else {}
         team_res, team_errs = await _resolve_team_id_from_doc(db, xs2, info)
         if team_errs:
             continue
@@ -1516,7 +1536,7 @@ async def discover_generate(request: Request, db: AsyncSession = Depends(get_db)
         contract = Contract(
             contract_id=contract_id,
             title=title,
-            description=doc["info"]["description"],
+            description=info["description"],
             file_path=f"contracts/{contract_id}.yaml",
             team_id=team_res,
             alerting_profile_id=profile_res,
@@ -1984,8 +2004,8 @@ async def partial_dq_discover_tables(request: Request, db: AsyncSession = Depend
     from sraosha.crypto import decrypt
 
     form = await request.form()
-    connection_id = form.get("connection_id", "")
-    schema = form.get("schema", "public") or "public"
+    connection_id = _form_text(form.get("connection_id"))
+    schema = _form_text(form.get("schema"), "public") or "public"
 
     if not connection_id:
         return HTMLResponse(
@@ -2086,8 +2106,8 @@ async def partial_dq_discover_tables_json(request: Request, db: AsyncSession = D
     from sraosha.crypto import decrypt
 
     form = await request.form()
-    connection_id = form.get("connection_id", "")
-    schema = form.get("schema", "public") or "public"
+    connection_id = _form_text(form.get("connection_id"))
+    schema = _form_text(form.get("schema"), "public") or "public"
 
     if not connection_id:
         return JSONResponse({"error": "No connection selected."}, status_code=400)
@@ -2147,11 +2167,11 @@ async def partial_dq_generate_check(request: Request):
     log = logging.getLogger("sraosha.dq.generate")
 
     form = await request.form()
-    template_key = (form.get("template_key") or "").strip()
-    table = (form.get("table") or "").strip()
-    column_raw = form.get("column")
-    column = (str(column_raw).strip() if column_raw not in (None, "") else None) or None
-    params_raw = form.get("params")
+    template_key = (_form_text(form.get("template_key")) or "").strip()
+    table = (_form_text(form.get("table")) or "").strip()
+    column_raw = _form_text(form.get("column"))
+    column = (column_raw.strip() if column_raw not in ("",) else None) or None
+    params_raw = _form_text(form.get("params")) or None
 
     tmpl = DQ_CHECK_TEMPLATES.get(template_key)
     if not tmpl or not table:
@@ -2858,9 +2878,11 @@ async def dq_upsert_schedule(
         return HTMLResponse("Not found", status_code=404)
 
     form = await request.form()
-    raw_preset = form.get("preset") or form.get("interval_preset") or "daily"
-    interval_preset = raw_preset.strip() if isinstance(raw_preset, str) else str(raw_preset)
-    cron_expression = (form.get("cron_expression") or "").strip() or None
+    raw_preset = (
+        _form_text(form.get("preset")) or _form_text(form.get("interval_preset")) or "daily"
+    )
+    interval_preset = raw_preset.strip()
+    cron_expression = (_form_text(form.get("cron_expression")) or "").strip() or None
     is_enabled = form.get("is_enabled") == "on"
 
     nr = _compute_next_run(interval_preset, cron_expression)
@@ -3102,9 +3124,9 @@ async def dashboard_upsert_schedule(
     db: AsyncSession = Depends(get_db),
 ):
     form = await request.form()
-    interval_preset = form.get("interval_preset", "daily")
-    cron_expression = form.get("cron_expression", "").strip() or None
-    is_enabled = form.get("is_enabled", "on") == "on"
+    interval_preset = _form_text(form.get("interval_preset"), "daily")
+    cron_expression = (_form_text(form.get("cron_expression")) or "").strip() or None
+    is_enabled = _form_text(form.get("is_enabled"), "on") == "on"
 
     result = await db.execute(
         select(ValidationSchedule).where(ValidationSchedule.contract_id == contract_id)
@@ -3226,8 +3248,8 @@ async def settings_team_new_form(request: Request, db: AsyncSession = Depends(ge
 @router.post("/settings/teams/new", response_class=HTMLResponse)
 async def settings_team_create(request: Request, db: AsyncSession = Depends(get_db)):
     form = await request.form()
-    name = (form.get("name") or "").strip()
-    dap = _parse_uuid(form.get("default_alerting_profile_id"))
+    name = (_form_text(form.get("name")) or "").strip()
+    dap = _parse_uuid(_form_text(form.get("default_alerting_profile_id")))
     errors: list[str] = []
     if not name:
         errors.append("Name is required.")
@@ -3303,8 +3325,8 @@ async def settings_team_update(request: Request, team_id: str, db: AsyncSession 
     if not team:
         return HTMLResponse("Not found", status_code=404)
     form = await request.form()
-    name = (form.get("name") or "").strip()
-    dap = _parse_uuid(form.get("default_alerting_profile_id"))
+    name = (_form_text(form.get("name")) or "").strip()
+    dap = _parse_uuid(_form_text(form.get("default_alerting_profile_id")))
     errors: list[str] = []
     if not name:
         errors.append("Name is required.")
@@ -3401,10 +3423,10 @@ async def settings_alerting_create(request: Request, db: AsyncSession = Depends(
     from sraosha.alerting.channel_types import CHANNEL_EMAIL, CHANNEL_SLACK
 
     form = await request.form()
-    name = (form.get("name") or "").strip()
-    description = (form.get("description") or "").strip() or None
-    slack_ch = (form.get("slack_channel") or "").strip()
-    email = (form.get("email") or "").strip()
+    name = (_form_text(form.get("name")) or "").strip()
+    description = (_form_text(form.get("description")) or "").strip() or None
+    slack_ch = (_form_text(form.get("slack_channel")) or "").strip()
+    email = (_form_text(form.get("email")) or "").strip()
     errors: list[str] = []
     if not name:
         errors.append("Name is required.")
@@ -3515,10 +3537,10 @@ async def settings_alerting_update(
     if not profile:
         return HTMLResponse("Not found", status_code=404)
     form = await request.form()
-    name = (form.get("name") or "").strip()
-    description = (form.get("description") or "").strip() or None
-    slack_ch = (form.get("slack_channel") or "").strip()
-    email = (form.get("email") or "").strip()
+    name = (_form_text(form.get("name")) or "").strip()
+    description = (_form_text(form.get("description")) or "").strip() or None
+    slack_ch = (_form_text(form.get("slack_channel")) or "").strip()
+    email = (_form_text(form.get("email")) or "").strip()
     errors: list[str] = []
     if not name:
         errors.append("Name is required.")
@@ -3633,8 +3655,8 @@ async def connection_create_form(request: Request):
 @router.post("/connections/new", response_class=HTMLResponse)
 async def connection_create(request: Request, db: AsyncSession = Depends(get_db)):
     form_data = await request.form()
-    name = (form_data.get("name") or "").strip()
-    server_type = form_data.get("server_type", "postgres")
+    name = (_form_text(form_data.get("name")) or "").strip()
+    server_type = _form_text(form_data.get("server_type"), "postgres")
 
     errors: list[str] = []
     if not name:
@@ -3644,7 +3666,7 @@ async def connection_create(request: Request, db: AsyncSession = Depends(get_db)
     if existing.scalar_one_or_none():
         errors.append(f"Connection '{name}' already exists.")
 
-    form = dict(form_data)
+    form: dict[str, Any] = dict(form_data)
     form["has_password"] = False
     form["has_token"] = False
     form["has_service_account_json"] = False
@@ -3673,33 +3695,38 @@ async def connection_create(request: Request, db: AsyncSession = Depends(get_db)
         "workspace",
         "lakehouse",
     ):
-        val = (form_data.get(f"extra_{key}") or "").strip()
+        val = (_form_text(form_data.get(f"extra_{key}")) or "").strip()
         if val:
             extra[key] = val
 
+    create_port_raw = _form_text(form_data.get("port"))
     conn = Connection(
         name=name,
         server_type=server_type,
-        description=form_data.get("description") or None,
-        host=form_data.get("host") or None,
-        port=int(form_data.get("port")) if form_data.get("port") else None,
-        database=form_data.get("database") or None,
-        schema_name=form_data.get("schema_name") or None,
-        account=form_data.get("account") or None,
-        warehouse=form_data.get("warehouse") or None,
-        role=form_data.get("role") or None,
-        catalog=form_data.get("catalog") or None,
-        http_path=form_data.get("http_path") or None,
-        project=form_data.get("project") or None,
-        dataset=form_data.get("dataset") or None,
-        location=form_data.get("location") or None,
-        path=form_data.get("path") or None,
-        username=form_data.get("username") or None,
-        password_encrypted=encrypt(form_data["password"]) if form_data.get("password") else None,
-        token_encrypted=encrypt(form_data["token"]) if form_data.get("token") else None,
+        description=_form_text(form_data.get("description")) or None,
+        host=_form_text(form_data.get("host")) or None,
+        port=int(create_port_raw) if create_port_raw else None,
+        database=_form_text(form_data.get("database")) or None,
+        schema_name=_form_text(form_data.get("schema_name")) or None,
+        account=_form_text(form_data.get("account")) or None,
+        warehouse=_form_text(form_data.get("warehouse")) or None,
+        role=_form_text(form_data.get("role")) or None,
+        catalog=_form_text(form_data.get("catalog")) or None,
+        http_path=_form_text(form_data.get("http_path")) or None,
+        project=_form_text(form_data.get("project")) or None,
+        dataset=_form_text(form_data.get("dataset")) or None,
+        location=_form_text(form_data.get("location")) or None,
+        path=_form_text(form_data.get("path")) or None,
+        username=_form_text(form_data.get("username")) or None,
+        password_encrypted=encrypt(_form_text(form_data.get("password")))
+        if _form_text(form_data.get("password"))
+        else None,
+        token_encrypted=encrypt(_form_text(form_data.get("token")))
+        if _form_text(form_data.get("token"))
+        else None,
         service_account_json_encrypted=(
-            encrypt(form_data["service_account_json"])
-            if form_data.get("service_account_json")
+            encrypt(_form_text(form_data.get("service_account_json")))
+            if _form_text(form_data.get("service_account_json"))
             else None
         ),
         extra_params=extra or None,
@@ -3783,7 +3810,7 @@ async def connection_update(
         return HTMLResponse("<h1>Connection not found</h1>", status_code=404)
 
     form_data = await request.form()
-    name = (form_data.get("name") or "").strip()
+    name = (_form_text(form_data.get("name")) or "").strip()
 
     errors: list[str] = []
     if not name:
@@ -3794,7 +3821,7 @@ async def connection_update(
         if dup.scalar_one_or_none():
             errors.append(f"Connection '{name}' already exists.")
 
-    form = dict(form_data)
+    form: dict[str, Any] = dict(form_data)
     form["has_password"] = bool(conn.password_encrypted)
     form["has_token"] = bool(conn.token_encrypted)
     form["has_service_account_json"] = bool(conn.service_account_json_encrypted)
@@ -3815,39 +3842,41 @@ async def connection_update(
     from sraosha.crypto import encrypt
 
     conn.name = name
-    conn.server_type = form_data.get("server_type", conn.server_type)
-    conn.description = form_data.get("description") or None
-    conn.host = form_data.get("host") or None
-    conn.port = int(form_data.get("port")) if form_data.get("port") else None
-    conn.database = form_data.get("database") or None
-    conn.schema_name = form_data.get("schema_name") or None
-    conn.account = form_data.get("account") or None
-    conn.warehouse = form_data.get("warehouse") or None
-    conn.role = form_data.get("role") or None
-    conn.catalog = form_data.get("catalog") or None
-    conn.http_path = form_data.get("http_path") or None
-    conn.project = form_data.get("project") or None
-    conn.dataset = form_data.get("dataset") or None
-    conn.location = form_data.get("location") or None
-    conn.path = form_data.get("path") or None
-    conn.username = form_data.get("username") or None
+    conn.server_type = _form_text(form_data.get("server_type"), conn.server_type)
+    conn.description = _form_text(form_data.get("description")) or None
+    conn.host = _form_text(form_data.get("host")) or None
+    port_raw = _form_text(form_data.get("port"))
+    conn.port = int(port_raw) if port_raw else None
+    conn.database = _form_text(form_data.get("database")) or None
+    conn.schema_name = _form_text(form_data.get("schema_name")) or None
+    conn.account = _form_text(form_data.get("account")) or None
+    conn.warehouse = _form_text(form_data.get("warehouse")) or None
+    conn.role = _form_text(form_data.get("role")) or None
+    conn.catalog = _form_text(form_data.get("catalog")) or None
+    conn.http_path = _form_text(form_data.get("http_path")) or None
+    conn.project = _form_text(form_data.get("project")) or None
+    conn.dataset = _form_text(form_data.get("dataset")) or None
+    conn.location = _form_text(form_data.get("location")) or None
+    conn.path = _form_text(form_data.get("path")) or None
+    conn.username = _form_text(form_data.get("username")) or None
 
-    if form_data.get("password"):
-        conn.password_encrypted = encrypt(form_data["password"])
-    if form_data.get("token"):
-        conn.token_encrypted = encrypt(form_data["token"])
-    if form_data.get("service_account_json"):
-        conn.service_account_json_encrypted = encrypt(form_data["service_account_json"])
+    if _form_text(form_data.get("password")):
+        conn.password_encrypted = encrypt(_form_text(form_data.get("password")))
+    if _form_text(form_data.get("token")):
+        conn.token_encrypted = encrypt(_form_text(form_data.get("token")))
+    sa_json = _form_text(form_data.get("service_account_json"))
+    if sa_json:
+        conn.service_account_json_encrypted = encrypt(sa_json)
 
     extra = dict(conn.extra_params or {})
     for key in ("region", "s3_staging_dir", "tenant_id", "client_id", "workspace", "lakehouse"):
-        val = (form_data.get(f"extra_{key}") or "").strip()
+        val = (_form_text(form_data.get(f"extra_{key}")) or "").strip()
         if val:
             extra[key] = val
         else:
             extra.pop(key, None)
-    if (form_data.get("extra_client_secret") or "").strip():
-        extra["client_secret"] = form_data["extra_client_secret"].strip()
+    if (_form_text(form_data.get("extra_client_secret")) or "").strip():
+        extra["client_secret"] = _form_text(form_data.get("extra_client_secret")).strip()
     conn.extra_params = extra or None
 
     conn.updated_at = datetime.now(timezone.utc)

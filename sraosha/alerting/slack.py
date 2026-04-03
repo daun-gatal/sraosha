@@ -37,8 +37,11 @@ class SlackAlerter(BaseAlerter):
             ],
         }
 
+        webhook_url = settings.SLACK_WEBHOOK_URL
+        assert webhook_url is not None
+
         try:
-            resp = httpx.post(settings.SLACK_WEBHOOK_URL, json=payload, timeout=10.0)
+            resp = httpx.post(webhook_url, json=payload, timeout=10.0)
             resp.raise_for_status()
             return True
         except Exception:
