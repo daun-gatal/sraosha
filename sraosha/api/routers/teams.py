@@ -3,7 +3,6 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from sraosha.api.deps import get_db
 from sraosha.models.contract import Contract

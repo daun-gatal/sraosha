@@ -282,7 +282,9 @@ TEMPLATES: dict[str, dict[str, Any]] = {
     },
     "freshness_warn_fail": {
         "label": "Freshness (warn / fail)",
-        "description": "Named freshness check with warn and fail when data is older than thresholds.",
+        "description": (
+            "Named freshness check with warn and fail when data is older than thresholds."
+        ),
         "icon": "clock",
         "category": "timeliness",
         "soda_section": 4,

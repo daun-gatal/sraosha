@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sraosha.api.deps import get_db
 from sraosha.models.contract import Contract
 from sraosha.models.dq_check import DQCheck
-from sraosha.models.team import Team
 from sraosha.models.dq_schedule import DQSchedule
 from sraosha.models.schedule import ValidationSchedule
+from sraosha.models.team import Team
 from sraosha.schemas.schedule import (
     ScheduleListItem,
     ScheduleListResponse,
@@ -191,7 +191,11 @@ async def upsert_dq_schedule(
 
     await db.flush()
     await db.refresh(schedule)
-    return {"id": str(schedule.id), "dq_check_id": str(dq_check_id), "next_run_at": str(schedule.next_run_at)}
+    return {
+        "id": str(schedule.id),
+        "dq_check_id": str(dq_check_id),
+        "next_run_at": str(schedule.next_run_at),
+    }
 
 
 @router.delete("/dq/{dq_check_id}/schedule")

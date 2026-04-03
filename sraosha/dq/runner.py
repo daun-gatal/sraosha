@@ -77,7 +77,7 @@ def _pick_measured_value(values: dict[str, Any]) -> Any:
 
 class SodaCheckRunner:
     def _normalize_results(self, scan: Any, log_output: str, duration: float) -> DQRunResult:
-        _, CheckOutcome = _import_soda()
+        _, check_outcome = _import_soda()
         checks = _all_checks(scan)
         results: list[dict[str, Any]] = []
         diagnostics: list[dict[str, Any]] = []
@@ -85,11 +85,11 @@ class SodaCheckRunner:
 
         for check in checks:
             outcome = getattr(check, "outcome", None)
-            if outcome == CheckOutcome.PASS:
+            if outcome == check_outcome.PASS:
                 passed += 1
-            elif outcome == CheckOutcome.WARN:
+            elif outcome == check_outcome.WARN:
                 warned += 1
-            elif outcome == CheckOutcome.FAIL:
+            elif outcome == check_outcome.FAIL:
                 failed += 1
 
             d = check.get_dict()
@@ -127,7 +127,7 @@ class SodaCheckRunner:
         conn_params: dict,
         sodacl_yaml: str,
     ) -> DQRunResult:
-        Scan, _ = _import_soda()
+        scan_cls, _ = _import_soda()
 
         safe_ds = sanitize_data_source_name(data_source_name)
         cfg_yaml = build_datasource_config(data_source_name, server_type, conn_params)
@@ -142,7 +142,7 @@ class SodaCheckRunner:
         soda_logger.setLevel(logging.DEBUG)
         soda_logger.addHandler(handler)
 
-        scan = Scan()
+        scan = scan_cls()
         scan.set_data_source_name(safe_ds)
         scan.add_configuration_yaml_str(cfg_yaml, file_path="sraosha_datasource.yaml")
         scan.add_sodacl_yaml_str(sodacl_yaml, file_name="sraosha_checks.yaml")

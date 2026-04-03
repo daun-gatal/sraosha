@@ -96,7 +96,11 @@ class ContractDependencyGraph:
                             existing_shared.add(col)
                         edge["shared_fields"] = list(existing_shared)
                 else:
-                    shared = [k.split(".")[-1] if "." in k else k for k in dep.fields] if dep.fields else []
+                    shared = (
+                        [k.split(".")[-1] if "." in k else k for k in dep.fields]
+                        if dep.fields
+                        else []
+                    )
                     self.graph.add_edge(
                         upstream_id,
                         cf.contract_id,
@@ -179,7 +183,9 @@ class ContractDependencyGraph:
             "affected_pipelines": [],
         }
 
-    def lineage_node_set(self, focus_id: str, upstream_depth: int, downstream_depth: int) -> set[str]:
+    def lineage_node_set(
+        self, focus_id: str, upstream_depth: int, downstream_depth: int
+    ) -> set[str]:
         """Nodes within hop limits upstream and downstream of focus (includes focus)."""
         if focus_id not in self.graph:
             return set()

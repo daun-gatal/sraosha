@@ -102,8 +102,9 @@ def run_dq_check(dq_check_id: str, triggered_by: str = "manual") -> dict:
             logger.warning("Connection not found for DQ check %s", dq_check_id)
             cur.execute(
                 """INSERT INTO dq_check_runs
-                   (id, dq_check_id, status, checks_total, checks_passed, checks_warned, checks_failed,
-                    results_json, diagnostics_json, run_log, duration_ms, triggered_by, run_at)
+                   (id, dq_check_id, status, checks_total, checks_passed,
+                    checks_warned, checks_failed, results_json, diagnostics_json,
+                    run_log, duration_ms, triggered_by, run_at)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     run_id,
@@ -139,8 +140,9 @@ def run_dq_check(dq_check_id: str, triggered_by: str = "manual") -> dict:
             duration_ms = int(out.duration_seconds * 1000)
             cur.execute(
                 """INSERT INTO dq_check_runs
-                   (id, dq_check_id, status, checks_total, checks_passed, checks_warned, checks_failed,
-                    results_json, diagnostics_json, run_log, duration_ms, triggered_by, run_at)
+                   (id, dq_check_id, status, checks_total, checks_passed,
+                    checks_warned, checks_failed, results_json, diagnostics_json,
+                    run_log, duration_ms, triggered_by, run_at)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     run_id,
@@ -177,8 +179,9 @@ def run_dq_check(dq_check_id: str, triggered_by: str = "manual") -> dict:
             err_tb = traceback.format_exc()
             cur.execute(
                 """INSERT INTO dq_check_runs
-                   (id, dq_check_id, status, checks_total, checks_passed, checks_warned, checks_failed,
-                    results_json, diagnostics_json, run_log, duration_ms, triggered_by, run_at)
+                   (id, dq_check_id, status, checks_total, checks_passed,
+                    checks_warned, checks_failed, results_json, diagnostics_json,
+                    run_log, duration_ms, triggered_by, run_at)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     run_id,
@@ -189,7 +192,11 @@ def run_dq_check(dq_check_id: str, triggered_by: str = "manual") -> dict:
                     0,
                     0,
                     None,
-                    Json(json.loads(json.dumps({"error": "exception", "detail": err_tb}, default=str))),
+                    Json(
+                        json.loads(
+                            json.dumps({"error": "exception", "detail": err_tb}, default=str)
+                        )
+                    ),
                     err_tb,
                     None,
                     triggered_by,

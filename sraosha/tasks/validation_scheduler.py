@@ -82,7 +82,10 @@ def _resolve_scheduler_creds(cur, raw_yaml: str) -> tuple:
         if not servers:
             return None, {}
 
-        cols = "server_type, username, password_encrypted, token_encrypted, service_account_json_encrypted"
+        cols = (
+            "server_type, username, password_encrypted, token_encrypted, "
+            "service_account_json_encrypted"
+        )
 
         for nm in ordered_connection_names_from_contract_doc(doc):
             cur.execute(f"SELECT {cols} FROM connections WHERE name = %s", (nm,))
@@ -93,7 +96,10 @@ def _resolve_scheduler_creds(cur, raw_yaml: str) -> tuple:
         first_type = next(iter(servers.values()), {})
         first_type = first_type.get("type", "") if isinstance(first_type, dict) else ""
         if first_type:
-            cur.execute(f"SELECT {cols} FROM connections WHERE server_type = %s LIMIT 1", (first_type,))
+            cur.execute(
+                f"SELECT {cols} FROM connections WHERE server_type = %s LIMIT 1",
+                (first_type,),
+            )
             crow = cur.fetchone()
             if crow:
                 return _parse_cred_row(crow)

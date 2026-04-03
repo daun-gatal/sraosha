@@ -27,7 +27,9 @@ class DQCheck(Base):
     data_source_name: Mapped[str] = mapped_column(String, nullable=False)
     sodacl_yaml: Mapped[str] = mapped_column(Text, nullable=False)
     tables: Mapped[list | None] = mapped_column(JSONColumnType, nullable=True, default=list)
-    check_categories: Mapped[list | None] = mapped_column(JSONColumnType, nullable=True, default=list)
+    check_categories: Mapped[list | None] = mapped_column(
+        JSONColumnType, nullable=True, default=list
+    )
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     tags: Mapped[list | None] = mapped_column(JSONColumnType, nullable=True, default=list)
     created_at: Mapped[datetime] = mapped_column(

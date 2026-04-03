@@ -27,7 +27,6 @@ from sraosha.api.routers.data_quality import _bucket_latest, _list_stmt
 from sraosha.api.routers.schedules import _compute_next_run
 from sraosha.compliance.scoring import rolling_30d_window, sparkline_svg_points
 from sraosha.dq.check_templates import TEMPLATES as DQ_CHECK_TEMPLATES
-from sraosha.schemas.dq_wizard import parse_dq_generate_params
 from sraosha.dq.config_builder import (
     SODA_CONNECTOR_TYPES,
     explicit_data_source_for_form,
@@ -43,6 +42,7 @@ from sraosha.models.dq_schedule import DQSchedule
 from sraosha.models.run import ValidationRun
 from sraosha.models.schedule import ValidationSchedule
 from sraosha.models.team import ComplianceScore, Team
+from sraosha.schemas.dq_wizard import parse_dq_generate_params
 from sraosha.tasks.dq_scan import run_dq_check
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
@@ -195,8 +195,11 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
             .subquery()
         )
         latest_runs = await db.execute(
-            select(DQCheckRun.status)
-            .join(latest_sub, (DQCheckRun.dq_check_id == latest_sub.c.dq_check_id) & (DQCheckRun.run_at == latest_sub.c.latest_at))
+            select(DQCheckRun.status).join(
+                latest_sub,
+                (DQCheckRun.dq_check_id == latest_sub.c.dq_check_id)
+                & (DQCheckRun.run_at == latest_sub.c.latest_at),
+            )
         )
         for (st,) in latest_runs.all():
             if st and st.lower() in ("passed", "pass"):
@@ -244,11 +247,36 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
         })
 
     stats = [
-        {"id": "total", "label": "Total Contracts", "value": total, "hint": "Registered"},
-        {"id": "pass_rate", "label": "Pass rate", "value": pct_display, "hint": "Contracts with all runs passing"},
-        {"id": "dq_health", "label": "DQ Checks", "value": dq_display, "hint": "Healthy / total DQ checks"},
-        {"id": "failed_runs", "label": "Failed runs", "value": total_failed, "hint": "Sum of failed validations"},
-        {"id": "schedules", "label": "Schedules today", "value": scheduled_today, "hint": "Runs due today (UTC)"},
+        {
+            "id": "total",
+            "label": "Total Contracts",
+            "value": total,
+            "hint": "Registered",
+        },
+        {
+            "id": "pass_rate",
+            "label": "Pass rate",
+            "value": pct_display,
+            "hint": "Contracts with all runs passing",
+        },
+        {
+            "id": "dq_health",
+            "label": "DQ Checks",
+            "value": dq_display,
+            "hint": "Healthy / total DQ checks",
+        },
+        {
+            "id": "failed_runs",
+            "label": "Failed runs",
+            "value": total_failed,
+            "hint": "Sum of failed validations",
+        },
+        {
+            "id": "schedules",
+            "label": "Schedules today",
+            "value": scheduled_today,
+            "hint": "Runs due today (UTC)",
+        },
     ]
 
     return templates.TemplateResponse(request, "overview.html", {
@@ -283,7 +311,10 @@ def _parse_uuid(val: object) -> uuid_mod.UUID | None:
 async def _resolve_team_id_from_doc(
     db: AsyncSession, xs: dict, info: dict
 ) -> tuple[uuid_mod.UUID | None, list[str]]:
-    """Resolve team FK from x-sraosha. Explicit team_id UUID must exist; owner_team/info.owner only match existing teams."""
+    """Resolve team FK from x-sraosha.
+
+    Explicit team_id UUID must exist; owner_team/info.owner only match existing teams.
+    """
     errs: list[str] = []
     raw_tid = xs.get("team_id")
     if raw_tid is not None and str(raw_tid).strip():
@@ -1216,8 +1247,9 @@ async def partial_discover_test(request: Request):
         return HTMLResponse(
             f'<div class="text-sm text-red-600 flex items-center gap-2">'
             f'<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
-            f'<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
-            f'Introspection not supported for {server_type}. '
+            f'<path stroke-linecap="round" stroke-linejoin="round" '
+            f'stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+            f"Introspection not supported for {server_type}. "
             f'Supported: {", ".join(SUPPORTED_TYPES)}</div>'
         )
 
@@ -1228,22 +1260,26 @@ async def partial_discover_test(request: Request):
     except Exception as exc:
         return HTMLResponse(
             f'<div class="text-sm text-red-600 flex items-center gap-2">'
-            f'<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
-            f'<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
-            f'Connection failed: {exc}</div>'
+            f'<svg class="w-4 h-4 flex-shrink-0" fill="none" '
+            f'stroke="currentColor" viewBox="0 0 24 24">'
+            f'<path stroke-linecap="round" stroke-linejoin="round" '
+            f'stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+            f"Connection failed: {exc}</div>"
         )
 
     if ok:
         return HTMLResponse(
             '<div class="text-sm text-green-600 flex items-center gap-2">'
             '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
-            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>'
+            '<path stroke-linecap="round" stroke-linejoin="round" '
+            'stroke-width="2" d="M5 13l4 4L19 7"/></svg>'
             'Connection successful</div>'
         )
     return HTMLResponse(
         '<div class="text-sm text-red-600 flex items-center gap-2">'
         '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
-        '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
         'Connection test returned false</div>'
     )
 
@@ -1641,7 +1677,11 @@ async def contract_update(
             doc = yaml_string_to_dict(raw_yaml_input)
         except ValueError as exc:
             errors.append(str(exc))
-            form_data = yaml_dict_to_form(yaml_string_to_dict(contract.raw_yaml)) if contract.raw_yaml else _empty_form_data()
+            form_data = (
+                yaml_dict_to_form(yaml_string_to_dict(contract.raw_yaml))
+                if contract.raw_yaml
+                else _empty_form_data()
+            )
             connections = await _get_connections(db)
             dep_contracts = await _all_contract_ids(db)
             fbc = await _fields_by_contract_map(db)
@@ -1884,13 +1924,15 @@ async def partial_dq_discover_tables(request: Request, db: AsyncSession = Depend
         introspector.close()
     except Exception as exc:
         return HTMLResponse(
-            f'<div class="text-sm text-red-600 dark:text-red-400 p-4">Discovery failed: {exc}</div>',
+            f'<div class="text-sm text-red-600 dark:text-red-400 p-4">'
+            f"Discovery failed: {exc}</div>",
             status_code=200,
         )
 
     if not tables:
         return HTMLResponse(
-            '<div class="text-sm text-gray-500 dark:text-gray-400 p-4">No tables found in this schema.</div>',
+            '<div class="text-sm text-gray-500 dark:text-gray-400 p-4">'
+            "No tables found in this schema.</div>",
             status_code=200,
         )
 
@@ -3333,7 +3375,13 @@ async def connection_create_form(request: Request):
     return templates.TemplateResponse(request, "connection_form.html", {
         "active_page": "Connections",
         "mode": "create",
-        "form": {"name": "", "server_type": "postgres", "has_password": False, "has_token": False, "has_service_account_json": False},
+        "form": {
+            "name": "",
+            "server_type": "postgres",
+            "has_password": False,
+            "has_token": False,
+            "has_service_account_json": False,
+        },
         "errors": [],
     })
 
@@ -3365,7 +3413,15 @@ async def connection_create(request: Request, db: AsyncSession = Depends(get_db)
     from sraosha.crypto import encrypt
 
     extra = {}
-    for key in ("region", "s3_staging_dir", "tenant_id", "client_id", "client_secret", "workspace", "lakehouse"):
+    for key in (
+        "region",
+        "s3_staging_dir",
+        "tenant_id",
+        "client_id",
+        "client_secret",
+        "workspace",
+        "lakehouse",
+    ):
         val = (form_data.get(f"extra_{key}") or "").strip()
         if val:
             extra[key] = val
@@ -3390,7 +3446,11 @@ async def connection_create(request: Request, db: AsyncSession = Depends(get_db)
         username=form_data.get("username") or None,
         password_encrypted=encrypt(form_data["password"]) if form_data.get("password") else None,
         token_encrypted=encrypt(form_data["token"]) if form_data.get("token") else None,
-        service_account_json_encrypted=encrypt(form_data["service_account_json"]) if form_data.get("service_account_json") else None,
+        service_account_json_encrypted=(
+            encrypt(form_data["service_account_json"])
+            if form_data.get("service_account_json")
+            else None
+        ),
         extra_params=extra or None,
     )
     db.add(conn)

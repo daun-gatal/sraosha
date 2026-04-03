@@ -62,7 +62,10 @@ def parse_contract(contract: dict) -> ContractFields:
         for entry in raw_depends:
             if isinstance(entry, dict) and "contract" in entry:
                 raw_fields = entry.get("fields", {})
-                mapping = {str(k): str(v) for k, v in raw_fields.items()} if isinstance(raw_fields, dict) else {}
+                if isinstance(raw_fields, dict):
+                    mapping = {str(k): str(v) for k, v in raw_fields.items()}
+                else:
+                    mapping = {}
                 depends_on.append(DependencyMapping(
                     contract_id=str(entry["contract"]),
                     fields=mapping,
