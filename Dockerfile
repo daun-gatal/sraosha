@@ -1,3 +1,4 @@
+# Docker image for Sraosha
 FROM python:3.11-slim
 
 ARG VERSION=unknown
