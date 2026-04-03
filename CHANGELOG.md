@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.1.1] - 2026-04-03
+
+### Changed
+
+- Bump release to **0.1.1** for PyPI (uploaded artifacts cannot be overwritten at the same version).
+- CI workflow allows overlapping runs on a branch (removed concurrency cancellation).
+
 ## [v0.1.0] - 2026-04-03
 
 Initial release of **Sraosha**: a self-hosted governance runtime around [datacontract-cli](https://github.com/datacontract/datacontract-cli) for validating data contracts, persisting runs, scoring team compliance, analyzing cross-contract impact, and operating a small dashboard beside the API. Orchestration is **bring-your-own** (CLI, HTTP API, or embedded `ContractEngine` in your jobs); there are no bundled Airflow or dbt operators.
