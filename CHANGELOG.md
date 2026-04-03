@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.1.2] - 2026-04-03
+
+### Changed
+
+- **Alembic** migrations and `alembic.ini` live under the `sraosha` package; `sraosha db` resolves the config from the installed package path (works from site-packages and Docker).
+- **Dockerfile** copies only `sraosha/` (no separate root `alembic/` copy); migrations ship with the wheel.
+- **CI / Release** workflows: Docker image rebuild detection now relies on the `sraosha/` prefix for Alembic paths (removed obsolete root `alembic/` / `alembic.ini` patterns).
+
+### Removed
+
+- **`INSTRUCTIONS.md`** — superseded by [ARCHITECTURE.md](ARCHITECTURE.md) and [README.md](README.md).
+
 ## [v0.1.1] - 2026-04-03
 
 ### Changed

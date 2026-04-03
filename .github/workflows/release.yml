@@ -198,7 +198,7 @@ jobs:
           fi
 
           CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)
-          CODE_CHANGES=$(echo "$CHANGED_FILES" | grep -E '^(sraosha/|tests/|pyproject\.toml|uv\.lock|Dockerfile|alembic/|alembic\.ini|\.sraosha\.example)' || true)
+          CODE_CHANGES=$(echo "$CHANGED_FILES" | grep -E '^(sraosha/|tests/|pyproject\.toml|uv\.lock|Dockerfile|\.sraosha\.example)' || true)
 
           if [ -z "$CODE_CHANGES" ]; then
             echo "No code changes detected. Only documentation/metadata files changed."

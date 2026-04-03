@@ -19,7 +19,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Sraosha API",
         description="Governance runtime for data contracts",
-        version="0.1.1",
+        version="0.1.2",
         docs_url="/docs",
         redoc_url="/redoc",
     )
