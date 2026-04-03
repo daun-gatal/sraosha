@@ -172,8 +172,9 @@ class TestContractDependencyGraph:
     def test_shared_table_creates_edges(self):
         graph = self._build_graph([CONTRACT_A, CONTRACT_B])
         assert len(graph.graph.nodes) == 2
-        has_edge = graph.graph.has_edge("orders-v1", "order-analytics-v1") or \
-                   graph.graph.has_edge("order-analytics-v1", "orders-v1")
+        has_edge = graph.graph.has_edge("orders-v1", "order-analytics-v1") or graph.graph.has_edge(
+            "order-analytics-v1", "orders-v1"
+        )
         assert has_edge
 
     def test_get_downstream(self):

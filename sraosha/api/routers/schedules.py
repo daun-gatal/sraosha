@@ -107,9 +107,7 @@ async def upsert_schedule(
     body: ScheduleRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    contract_result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    contract_result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     if not contract_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Contract not found")
 
@@ -167,9 +165,7 @@ async def upsert_dq_schedule(
     if not check_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="DQ check not found")
 
-    result = await db.execute(
-        select(DQSchedule).where(DQSchedule.dq_check_id == dq_check_id)
-    )
+    result = await db.execute(select(DQSchedule).where(DQSchedule.dq_check_id == dq_check_id))
     schedule = result.scalar_one_or_none()
     next_run = _compute_next_run(body.interval_preset, body.cron_expression)
 
@@ -203,9 +199,7 @@ async def delete_dq_schedule(
     dq_check_id: uuid_mod.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(DQSchedule).where(DQSchedule.dq_check_id == dq_check_id)
-    )
+    result = await db.execute(select(DQSchedule).where(DQSchedule.dq_check_id == dq_check_id))
     schedule = result.scalar_one_or_none()
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")

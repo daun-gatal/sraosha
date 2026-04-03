@@ -16,7 +16,9 @@ class DQCheck(Base):
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     connection_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType, ForeignKey("connections.id"), nullable=False,
+        UUIDType,
+        ForeignKey("connections.id"),
+        nullable=False,
     )
     team_id: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True

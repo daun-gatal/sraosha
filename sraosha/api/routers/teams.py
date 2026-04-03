@@ -58,9 +58,7 @@ async def get_team(team_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/{team_id}", response_model=TeamSettingsResponse)
-async def update_team(
-    team_id: str, body: TeamSettingsUpdate, db: AsyncSession = Depends(get_db)
-):
+async def update_team(team_id: str, body: TeamSettingsUpdate, db: AsyncSession = Depends(get_db)):
     try:
         uid = uuid.UUID(team_id)
     except ValueError:
@@ -94,12 +92,8 @@ async def delete_team(team_id: str, db: AsyncSession = Depends(get_db)):
     team = await db.get(Team, uid)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    c = await db.scalar(
-        select(func.count()).select_from(Contract).where(Contract.team_id == uid)
-    )
-    d = await db.scalar(
-        select(func.count()).select_from(DQCheck).where(DQCheck.team_id == uid)
-    )
+    c = await db.scalar(select(func.count()).select_from(Contract).where(Contract.team_id == uid))
+    d = await db.scalar(select(func.count()).select_from(DQCheck).where(DQCheck.team_id == uid))
     if (c or 0) > 0 or (d or 0) > 0:
         raise HTTPException(
             status_code=409,

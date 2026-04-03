@@ -12,7 +12,10 @@ class DQSchedule(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUIDType, primary_key=True, default=uuid.uuid4)
     dq_check_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType, ForeignKey("dq_checks.id"), unique=True, nullable=False,
+        UUIDType,
+        ForeignKey("dq_checks.id"),
+        unique=True,
+        nullable=False,
     )
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     interval_preset: Mapped[str] = mapped_column(String, nullable=False, default="daily")

@@ -244,9 +244,7 @@ def impact(
     )
     console.print(f"Severity: [{severity_color}]{data['severity'].upper()}[/{severity_color}]")
     console.print(f"Directly affected: {', '.join(data['directly_affected']) or 'None'}")
-    console.print(
-        f"Transitively affected: {', '.join(data['transitively_affected']) or 'None'}"
-    )
+    console.print(f"Transitively affected: {', '.join(data['transitively_affected']) or 'None'}")
 
 
 @app.command()

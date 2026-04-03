@@ -58,8 +58,7 @@ def _list_stmt():
         .outerjoin(latest_sub, latest_sub.c.cid == DQCheck.id)
         .outerjoin(
             latest_run,
-            (latest_run.dq_check_id == DQCheck.id)
-            & (latest_run.run_at == latest_sub.c.latest_at),
+            (latest_run.dq_check_id == DQCheck.id) & (latest_run.run_at == latest_sub.c.latest_at),
         )
         .outerjoin(run_count_sub, run_count_sub.c.cid == DQCheck.id)
         .options(selectinload(DQCheck.team), selectinload(DQCheck.alerting_profile))

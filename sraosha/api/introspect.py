@@ -186,8 +186,7 @@ class DuckDBIntrospector(SchemaIntrospector):
             [schema],
         ).fetchall()
         return [
-            {"table_name": r[0], "table_type": "view" if "VIEW" in r[1] else "table"}
-            for r in rows
+            {"table_name": r[0], "table_type": "view" if "VIEW" in r[1] else "table"} for r in rows
         ]
 
     def get_columns(self, schema: str, table: str) -> list[dict[str, Any]]:

@@ -206,10 +206,20 @@ def run_contract_validation(self, contract_id: str) -> dict:
                 failures, server, triggered_by, duration_ms, error_message, run_log, run_at)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
-                uuid.uuid4(), contract_id, status, enforcement_mode,
-                checks_total, checks_passed, checks_failed,
+                uuid.uuid4(),
+                contract_id,
+                status,
+                enforcement_mode,
+                checks_total,
+                checks_passed,
+                checks_failed,
                 json.dumps(failures) if failures else None,
-                "production", "scheduler", duration_ms, error_message, run_log, now,
+                "production",
+                "scheduler",
+                duration_ms,
+                error_message,
+                run_log,
+                now,
             ),
         )
 

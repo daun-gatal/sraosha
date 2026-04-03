@@ -43,16 +43,13 @@ async def list_runs(
 
 @router.get("/summary", response_model=RunSummaryResponse)
 async def runs_summary(db: AsyncSession = Depends(get_db)):
-    query = (
-        select(
-            ValidationRun.contract_id,
-            func.count().label("total_runs"),
-            func.count().filter(ValidationRun.status == "passed").label("passed"),
-            func.count().filter(ValidationRun.status == "failed").label("failed"),
-            func.count().filter(ValidationRun.status == "error").label("error"),
-        )
-        .group_by(ValidationRun.contract_id)
-    )
+    query = select(
+        ValidationRun.contract_id,
+        func.count().label("total_runs"),
+        func.count().filter(ValidationRun.status == "passed").label("passed"),
+        func.count().filter(ValidationRun.status == "failed").label("failed"),
+        func.count().filter(ValidationRun.status == "error").label("error"),
+    ).group_by(ValidationRun.contract_id)
     result = await db.execute(query)
     rows = result.all()
 

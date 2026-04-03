@@ -169,7 +169,8 @@ def _parse_sync_cred_row(row: tuple) -> tuple[str, dict[str, Any]]:
 
 
 async def resolve_connection_credentials_async(
-    contract_id: str, db,
+    contract_id: str,
+    db,
 ) -> tuple[str | None, dict[str, Any]]:
     """Look up connection credentials (async, for API).
 
@@ -181,9 +182,7 @@ async def resolve_connection_credentials_async(
     from sraosha.models.connection import Connection
     from sraosha.models.contract import Contract
 
-    result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     contract = result.scalar_one_or_none()
     if not contract:
         return None, {}

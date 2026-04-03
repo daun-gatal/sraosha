@@ -56,9 +56,7 @@ def soda_connector_type_for_server_type(server_type: str) -> str:
     return SODA_TYPE_MAP.get(key, "postgres")
 
 
-def resolve_data_source_name(
-    server_type: str, explicit: str | None
-) -> tuple[str, str | None]:
+def resolve_data_source_name(server_type: str, explicit: str | None) -> tuple[str, str | None]:
     """Resolve the Soda scan data source key. Returns (name, error_message_or_none)."""
     raw = (explicit or "").strip()
     if raw:

@@ -256,24 +256,26 @@ def yaml_dict_to_form(doc: dict) -> dict[str, Any]:
                 conn_name = ref.strip()
             elif isinstance(ref, dict) and ref.get("name") is not None:
                 conn_name = str(ref.get("name", "")).strip()
-        servers_list.append({
-            "name": name,
-            "type": sdef.get("type", ""),
-            "host": sdef.get("host", ""),
-            "port": str(sdef.get("port", "")),
-            "database": sdef.get("database", ""),
-            "schema": sdef.get("schema", ""),
-            "account": sdef.get("account", ""),
-            "warehouse": sdef.get("warehouse", ""),
-            "role": sdef.get("role", ""),
-            "catalog": sdef.get("catalog", ""),
-            "httpPath": sdef.get("httpPath", ""),
-            "project": sdef.get("project", ""),
-            "dataset": sdef.get("dataset", ""),
-            "location": sdef.get("location", ""),
-            "path": sdef.get("path", ""),
-            "connection_name": conn_name,
-        })
+        servers_list.append(
+            {
+                "name": name,
+                "type": sdef.get("type", ""),
+                "host": sdef.get("host", ""),
+                "port": str(sdef.get("port", "")),
+                "database": sdef.get("database", ""),
+                "schema": sdef.get("schema", ""),
+                "account": sdef.get("account", ""),
+                "warehouse": sdef.get("warehouse", ""),
+                "role": sdef.get("role", ""),
+                "catalog": sdef.get("catalog", ""),
+                "httpPath": sdef.get("httpPath", ""),
+                "project": sdef.get("project", ""),
+                "dataset": sdef.get("dataset", ""),
+                "location": sdef.get("location", ""),
+                "path": sdef.get("path", ""),
+                "connection_name": conn_name,
+            }
+        )
     form["servers"] = servers_list
 
     models_list = []
@@ -284,17 +286,21 @@ def yaml_dict_to_form(doc: dict) -> dict[str, Any]:
         for fname, fdef in mdef.get("fields", {}).items():
             if not isinstance(fdef, dict):
                 fdef = {}
-            fields.append({
-                "name": fname,
-                "type": fdef.get("type", ""),
-                "required": fdef.get("required", False),
-                "unique": fdef.get("unique", False),
-            })
-        models_list.append({
-            "name": mname,
-            "type": mdef.get("type", "table"),
-            "fields": fields,
-        })
+            fields.append(
+                {
+                    "name": fname,
+                    "type": fdef.get("type", ""),
+                    "required": fdef.get("required", False),
+                    "unique": fdef.get("unique", False),
+                }
+            )
+        models_list.append(
+            {
+                "name": mname,
+                "type": mdef.get("type", "table"),
+                "fields": fields,
+            }
+        )
     form["models"] = models_list
 
     form["team_id"] = str(xs.get("team_id", "") or "")

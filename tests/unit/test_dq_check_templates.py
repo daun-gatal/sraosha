@@ -43,10 +43,7 @@ def test_consistency_multi_column():
         other_table="regions",
         other_columns="region_id, country_code",
     )
-    expected = (
-        "values in (region_id, country_code) must exist in regions "
-        "(region_id, country_code)"
-    )
+    expected = "values in (region_id, country_code) must exist in regions (region_id, country_code)"
     assert expected in y
 
 

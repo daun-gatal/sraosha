@@ -174,9 +174,7 @@ async def update_channel(
 
 
 @router.delete("/{profile_id}/channels/{channel_id}", status_code=204)
-async def delete_channel(
-    profile_id: str, channel_id: str, db: AsyncSession = Depends(get_db)
-):
+async def delete_channel(profile_id: str, channel_id: str, db: AsyncSession = Depends(get_db)):
     try:
         puid = uuid.UUID(profile_id)
         cid = uuid.UUID(channel_id)

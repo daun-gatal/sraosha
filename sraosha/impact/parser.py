@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 @dataclass
 class DependencyMapping:
     """Explicit upstream dependency with table.column-level field mapping."""
+
     contract_id: str
     fields: dict[str, str] = field(default_factory=dict)  # "upstream_table.col": "local_table.col"
 
@@ -66,10 +67,12 @@ def parse_contract(contract: dict) -> ContractFields:
                     mapping = {str(k): str(v) for k, v in raw_fields.items()}
                 else:
                     mapping = {}
-                depends_on.append(DependencyMapping(
-                    contract_id=str(entry["contract"]),
-                    fields=mapping,
-                ))
+                depends_on.append(
+                    DependencyMapping(
+                        contract_id=str(entry["contract"]),
+                        fields=mapping,
+                    )
+                )
 
     return ContractFields(
         contract_id=contract_id,

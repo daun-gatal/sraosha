@@ -129,10 +129,7 @@ def _gen_consistency(table: str, column: str | None = None, **kwargs: Any) -> st
             f"checks for {table}:\n"
             f"  - values in ({left_in}) must exist in {other_table} ({right_in})\n"
         )
-    return (
-        f"checks for {table}:\n"
-        f"  - values in ({left}) must exist in {other_table} ({right})\n"
-    )
+    return f"checks for {table}:\n  - values in ({left}) must exist in {other_table} ({right})\n"
 
 
 def _gen_statistical(table: str, column: str | None = None, **kwargs: Any) -> str:
@@ -173,10 +170,7 @@ def _gen_failed_rows_query(table: str, column: str | None = None, **kwargs: Any)
     qlines = query.splitlines()
     body = "\n".join("        " + (ln if ln.strip() else "") for ln in qlines)
     return (
-        f"checks for {table}:\n"
-        f"  - failed rows:\n"
-        f"      name: {name}\n"
-        f"      fail query: |\n{body}\n"
+        f"checks for {table}:\n  - failed rows:\n      name: {name}\n      fail query: |\n{body}\n"
     )
 
 
@@ -228,11 +222,7 @@ def _gen_user_defined_query(table: str, column: str | None = None, **kwargs: Any
     key = f"{metric} query"
     qlines = query.splitlines()
     body = "\n".join("        " + (ln if ln.strip() else "") for ln in qlines)
-    return (
-        f"checks for {table}:\n"
-        f"  - {metric} {op} {threshold}:\n"
-        f"      {key}: |\n{body}\n"
-    )
+    return f"checks for {table}:\n  - {metric} {op} {threshold}:\n      {key}: |\n{body}\n"
 
 
 def _gen_filtered_check(table: str, column: str | None = None, **kwargs: Any) -> str:
@@ -291,12 +281,27 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "needs_column": True,
         "column_types": ["timestamp", "date"],
         "params": [
-            {"name": "check_name", "label": "Check name", "type": "text",
-             "default": "Freshness thresholds", "placeholder": ""},
-            {"name": "warn_threshold", "label": "Warn when older than", "type": "text",
-             "default": "12h", "placeholder": "12h"},
-            {"name": "fail_threshold", "label": "Fail when older than", "type": "text",
-             "default": "24h", "placeholder": "24h"},
+            {
+                "name": "check_name",
+                "label": "Check name",
+                "type": "text",
+                "default": "Freshness thresholds",
+                "placeholder": "",
+            },
+            {
+                "name": "warn_threshold",
+                "label": "Warn when older than",
+                "type": "text",
+                "default": "12h",
+                "placeholder": "12h",
+            },
+            {
+                "name": "fail_threshold",
+                "label": "Fail when older than",
+                "type": "text",
+                "default": "24h",
+                "placeholder": "24h",
+            },
         ],
         "generate": _gen_freshness_warn_fail,
     },
@@ -320,10 +325,20 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "needs_column": True,
         "column_types": [],
         "params": [
-            {"name": "operator", "label": "Operator", "type": "select",
-             "default": "<", "options": ["<", "<=", "=", ">", ">="]},
-            {"name": "threshold", "label": "Threshold (percent)", "type": "text",
-             "default": "5", "placeholder": "5"},
+            {
+                "name": "operator",
+                "label": "Operator",
+                "type": "select",
+                "default": "<",
+                "options": ["<", "<=", "=", ">", ">="],
+            },
+            {
+                "name": "threshold",
+                "label": "Threshold (percent)",
+                "type": "text",
+                "default": "5",
+                "placeholder": "5",
+            },
         ],
         "generate": _gen_missing_percent,
     },
@@ -503,8 +518,13 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "needs_column": False,
         "column_types": [],
         "params": [
-            {"name": "check_name", "label": "Check name", "type": "text",
-             "default": "Failed rows query", "placeholder": ""},
+            {
+                "name": "check_name",
+                "label": "Check name",
+                "type": "text",
+                "default": "Failed rows query",
+                "placeholder": "",
+            },
             {
                 "name": "fail_query",
                 "label": "SQL (SELECT …)",
@@ -543,12 +563,27 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "needs_column": False,
         "column_types": [],
         "params": [
-            {"name": "metric_name", "label": "Metric name", "type": "text",
-             "default": "net_revenue", "placeholder": "net_revenue"},
-            {"name": "operator", "label": "Operator", "type": "select",
-             "default": ">", "options": [">", ">=", "<", "<=", "=", "!="]},
-            {"name": "threshold", "label": "Threshold", "type": "text",
-             "default": "0", "placeholder": "100000"},
+            {
+                "name": "metric_name",
+                "label": "Metric name",
+                "type": "text",
+                "default": "net_revenue",
+                "placeholder": "net_revenue",
+            },
+            {
+                "name": "operator",
+                "label": "Operator",
+                "type": "select",
+                "default": ">",
+                "options": [">", ">=", "<", "<=", "=", "!="],
+            },
+            {
+                "name": "threshold",
+                "label": "Threshold",
+                "type": "text",
+                "default": "0",
+                "placeholder": "100000",
+            },
             {
                 "name": "expression",
                 "label": "SQL expression",
@@ -568,12 +603,27 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "needs_column": False,
         "column_types": [],
         "params": [
-            {"name": "metric_name", "label": "Metric name", "type": "text",
-             "default": "my_metric", "placeholder": "orders_without_items"},
-            {"name": "operator", "label": "Operator", "type": "select",
-             "default": "=", "options": ["=", ">", ">=", "<", "<=", "!="]},
-            {"name": "threshold", "label": "Threshold", "type": "text",
-             "default": "0", "placeholder": "0"},
+            {
+                "name": "metric_name",
+                "label": "Metric name",
+                "type": "text",
+                "default": "my_metric",
+                "placeholder": "orders_without_items",
+            },
+            {
+                "name": "operator",
+                "label": "Operator",
+                "type": "select",
+                "default": "=",
+                "options": ["=", ">", ">=", "<", "<=", "!="],
+            },
+            {
+                "name": "threshold",
+                "label": "Threshold",
+                "type": "text",
+                "default": "0",
+                "placeholder": "0",
+            },
             {
                 "name": "metric_query",
                 "label": "SQL query (scalar)",
@@ -593,8 +643,13 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "needs_column": False,
         "column_types": [],
         "params": [
-            {"name": "check_name", "label": "Name (optional)", "type": "text",
-             "default": "", "placeholder": ""},
+            {
+                "name": "check_name",
+                "label": "Name (optional)",
+                "type": "text",
+                "default": "",
+                "placeholder": "",
+            },
             {
                 "name": "base_check",
                 "label": "Check line (SodaCL)",
