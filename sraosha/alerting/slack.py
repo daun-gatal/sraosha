@@ -18,7 +18,7 @@ class SlackAlerter(BaseAlerter):
         if not self.is_enabled():
             return False
 
-        icon = {"contract_violation": "!!", "drift_warning": "~~", "breach": "XX"}.get(
+        icon = {"contract_violation": "!!", "dq_warning": "~~", "dq_failure": "XX"}.get(
             alert_type, "**"
         )
         title = f"{icon} Sraosha: {alert_type.replace('_', ' ').title()}"

@@ -7,12 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Pipeline integration package (`sraosha/hooks/`): Airflow `SraoshaOperator`, dbt runner, and shared hook utilities. Use the CLI, API, or `ContractEngine` from your own orchestration instead.
+
 ### Added
 
 - Core validation engine wrapping `datacontract-cli`
 - Contract loader supporting local files, URLs, and Git repositories
-- Airflow operator (`SraoshaOperator`) for pipeline enforcement
-- dbt hook for on-run-end validation
 - Drift detection module with DuckDB-based metric computation
 - Statistical baseline computation with trend analysis
 - Cross-contract impact analysis using dependency graphs

@@ -1,0 +1,43 @@
+# Sraosha configuration file
+# Copy to .sraosha and adjust values:
+#   cp .sraosha.example .sraosha
+#
+# Resolution order:
+#   1. CLI flag:     sraosha --config /path/to/.sraosha serve
+#   2. Env var:      SRAOSHA_CONFIG=/path/to/.sraosha sraosha serve
+#   3. CWD:          .sraosha in the current directory
+#   4. Home:         ~/.sraosha
+#   5. Defaults:     built-in defaults
+#
+# Environment variables always override file values.
+
+# === Database ===
+DATABASE_URL=postgresql+asyncpg://sraosha:sraosha@localhost:5432/sraosha
+
+# === Redis (Celery) ===
+REDIS_URL=redis://localhost:6379/0
+
+# === API ===
+API_HOST=0.0.0.0
+API_PORT=8000
+# API_KEY=
+
+# === Contracts ===
+CONTRACTS_DIR=./contracts
+DEFAULT_ENFORCEMENT_MODE=block
+
+# === Drift Detection ===
+DRIFT_SCAN_INTERVAL_SECONDS=3600
+DRIFT_BASELINE_WINDOW=14
+
+# === Slack Alerting ===
+SLACK_ENABLED=false
+# SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ
+
+# === Email Alerting ===
+EMAIL_ENABLED=false
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USERNAME=your@email.com
+# SMTP_PASSWORD=your-app-password
+# SMTP_FROM=sraosha@yourcompany.com

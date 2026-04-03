@@ -29,7 +29,13 @@ class ContractLoader:
 
     @staticmethod
     def from_git(repo_url: str, file_path: str, branch: str = "main") -> dict:
-        import git
+        try:
+            import git
+        except ImportError:
+            raise ImportError(
+                "gitpython is required for loading contracts from git repos. "
+                "Install it with: pip install gitpython"
+            ) from None
 
         with tempfile.TemporaryDirectory() as tmp:
             git.Repo.clone_from(repo_url, tmp, branch=branch, depth=1)

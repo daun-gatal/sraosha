@@ -13,8 +13,8 @@ class AlertDispatcher:
 
     ALERT_TYPES: ClassVar[list[str]] = [
         "contract_violation",
-        "drift_warning",
-        "breach",
+        "dq_warning",
+        "dq_failure",
     ]
 
     def __init__(self):

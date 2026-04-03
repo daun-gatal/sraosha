@@ -24,6 +24,7 @@ class ValidationRun(Base):
     triggered_by: Mapped[str | None] = mapped_column(String, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    run_log: Mapped[str | None] = mapped_column(Text, nullable=True)
     run_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

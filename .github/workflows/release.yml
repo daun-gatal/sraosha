@@ -14,8 +14,6 @@ jobs:
     environment: pypi
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
       - uses: astral-sh/setup-uv@v4
-      - run: bash scripts/build_dashboard.sh
       - run: uv build
       - uses: pypa/gh-action-pypi-publish@release/v1

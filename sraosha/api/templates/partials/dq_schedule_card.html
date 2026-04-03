@@ -1,0 +1,76 @@
+<div id="dq-schedule-card" class="rounded-xl border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-900">
+  <div class="mb-4 flex items-center justify-between">
+    <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Schedule</h2>
+    {% if schedule %}
+    <span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium
+      {% if schedule.is_enabled %}bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200{% else %}bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300{% endif %}">
+      {% if schedule.is_enabled %}Active{% else %}Paused{% endif %}
+    </span>
+    {% endif %}
+  </div>
+
+  {% if schedule %}
+  <div class="mb-4 grid grid-cols-2 gap-4 text-sm md:grid-cols-3">
+    <div>
+      <dt class="text-gray-500 dark:text-gray-400">Interval</dt>
+      <dd class="font-medium text-gray-900 dark:text-white">{{ preset_labels.get(schedule.interval_preset, schedule.interval_preset) }}</dd>
+      {% if schedule.cron_expression %}
+      <dd class="mt-0.5 font-mono text-xs text-gray-400">{{ schedule.cron_expression }}</dd>
+      {% endif %}
+    </div>
+    <div>
+      <dt class="text-gray-500 dark:text-gray-400">Next run</dt>
+      <dd class="font-medium text-gray-900 dark:text-white">
+        {% if schedule.is_enabled and schedule.next_run_at %}{{ schedule.next_run_at.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}—{% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt class="text-gray-500 dark:text-gray-400">Last run</dt>
+      <dd class="font-medium text-gray-900 dark:text-white">
+        {% if schedule.last_run_at %}{{ schedule.last_run_at.strftime('%Y-%m-%d %H:%M') }} UTC{% else %}Never{% endif %}
+      </dd>
+    </div>
+  </div>
+  {% endif %}
+
+  <form hx-post="/ui/data-quality/{{ check_id }}/schedule"
+        hx-target="#dq-schedule-card"
+        hx-swap="outerHTML"
+        class="space-y-4">
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div>
+        <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Interval</label>
+        <select name="preset" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+          {% for key, label in preset_labels.items() %}
+          <option value="{{ key }}" {% if schedule and schedule.interval_preset == key %}selected{% elif not schedule and key == 'daily' %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Cron (custom)</label>
+        <input type="text" name="cron_expression" value="{{ schedule.cron_expression or '' if schedule else '' }}"
+               class="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+      </div>
+      <div class="flex items-end gap-2">
+        <label class="flex items-center gap-2">
+          <input type="checkbox" name="is_enabled" {% if not schedule or schedule.is_enabled %}checked{% endif %} />
+          <span class="text-sm text-gray-700 dark:text-gray-300">Enabled</span>
+        </label>
+      </div>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+        {% if schedule %}Update{% else %}Save schedule{% endif %}
+      </button>
+      {% if schedule %}
+      <button type="button"
+              hx-delete="/ui/data-quality/{{ check_id }}/schedule"
+              hx-target="#dq-schedule-card"
+              hx-swap="outerHTML"
+              class="rounded-lg border border-rose-200 px-4 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:hover:bg-rose-950/30">
+        Remove
+      </button>
+      {% endif %}
+    </div>
+  </form>
+</div>

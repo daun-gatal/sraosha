@@ -1,0 +1,36 @@
+<div class="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" id="delete-modal-backdrop"
+     onclick="if(event.target===this)this.remove()">
+  <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+    <div class="flex items-start gap-3">
+      <div class="flex-shrink-0 w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+        <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+      </div>
+      <div>
+        <h3 class="text-lg font-semibold text-gray-900">Delete Contract</h3>
+        {% if contract %}
+        <p class="text-sm text-gray-500 mt-1">
+          Are you sure you want to delete <strong>{{ contract.title }}</strong>
+          (<code class="text-xs">{{ contract.contract_id }}</code>)?
+          This action cannot be undone.
+        </p>
+        {% else %}
+        <p class="text-sm text-gray-500 mt-1">Contract not found.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% if contract %}
+    <div class="flex items-center justify-end gap-3 pt-2">
+      <button type="button" onclick="document.getElementById('delete-modal-backdrop').remove()"
+              class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+        Cancel
+      </button>
+      <button type="button"
+              hx-delete="/ui/contracts/{{ contract.contract_id }}"
+              hx-confirm=""
+              class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors">
+        Delete
+      </button>
+    </div>
+    {% endif %}
+  </div>
+</div>

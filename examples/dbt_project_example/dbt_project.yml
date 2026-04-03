@@ -1,6 +1,0 @@
-# Example dbt_project.yml showing Sraosha integration
-name: "my_project"
-version: "1.0.0"
-
-on-run-end:
-  - "python -m sraosha.hooks.dbt.hook --contract contracts/orders.yaml --mode block"

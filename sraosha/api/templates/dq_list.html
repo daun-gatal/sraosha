@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Sraosha — Data Quality{% endblock %}
+{% block breadcrumbs %}
+<h1 class="truncate text-sm font-semibold text-gray-900 dark:text-white">Data Quality</h1>
+<p class="truncate text-xs text-gray-500 dark:text-gray-400">SodaCL-powered checks across your data sources</p>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="flex justify-end">
+    <a href="/ui/data-quality/new"
+       class="inline-flex shrink-0 items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-500">
+      <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      New Check
+    </a>
+  </div>
+
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Total checks</p>
+      <p class="mt-2 text-3xl font-semibold tabular-nums text-gray-900 dark:text-white">{{ summary.total_checks }}</p>
+      {% if summary.overall_pass_rate is defined and summary.overall_pass_rate is not none %}
+      <p class="mt-1 text-sm text-emerald-600 dark:text-emerald-400">{{ "%.1f"|format(summary.overall_pass_rate) }}% pass rate</p>
+      {% endif %}
+    </div>
+    <div class="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Healthy</p>
+      <p class="mt-2 text-3xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{{ summary.healthy }}</p>
+    </div>
+    <div class="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Warning</p>
+      <p class="mt-2 text-3xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">{{ summary.warning }}</p>
+    </div>
+    <div class="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+      <p class="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Failed</p>
+      <p class="mt-2 text-3xl font-semibold tabular-nums text-rose-600 dark:text-rose-400">{{ summary.failed }}</p>
+    </div>
+  </div>
+
+  <div class="flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+    <div class="flex flex-wrap gap-2">
+      <a href="/ui/data-quality{% if search_query or selected_connection_id %}?{% endif %}{% if search_query %}q={{ search_query | urlencode }}{% endif %}{% if search_query and selected_connection_id %}&{% endif %}{% if selected_connection_id %}connection={{ selected_connection_id | urlencode }}{% endif %}"
+         class="rounded-lg px-3 py-1.5 text-xs font-medium {% if not filter_status %}bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white{% else %}text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800{% endif %}">All</a>
+      <a href="/ui/data-quality?status=healthy{% if search_query %}&q={{ search_query | urlencode }}{% endif %}{% if selected_connection_id %}&connection={{ selected_connection_id | urlencode }}{% endif %}"
+         class="rounded-lg px-3 py-1.5 text-xs font-medium {% if filter_status == 'healthy' %}bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200{% else %}text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800{% endif %}">Healthy</a>
+      <a href="/ui/data-quality?status=warning{% if search_query %}&q={{ search_query | urlencode }}{% endif %}{% if selected_connection_id %}&connection={{ selected_connection_id | urlencode }}{% endif %}"
+         class="rounded-lg px-3 py-1.5 text-xs font-medium {% if filter_status == 'warning' %}bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200{% else %}text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800{% endif %}">Warning</a>
+      <a href="/ui/data-quality?status=failed{% if search_query %}&q={{ search_query | urlencode }}{% endif %}{% if selected_connection_id %}&connection={{ selected_connection_id | urlencode }}{% endif %}"
+         class="rounded-lg px-3 py-1.5 text-xs font-medium {% if filter_status == 'failed' %}bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-200{% else %}text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800{% endif %}">Failed</a>
+      <a href="/ui/data-quality?status=error{% if search_query %}&q={{ search_query | urlencode }}{% endif %}{% if selected_connection_id %}&connection={{ selected_connection_id | urlencode }}{% endif %}"
+         class="rounded-lg px-3 py-1.5 text-xs font-medium {% if filter_status == 'error' %}bg-gray-200 text-gray-900 dark:bg-gray-700 dark:text-white{% else %}text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800{% endif %}">Error</a>
+    </div>
+    <form method="get" action="/ui/data-quality" class="flex flex-col gap-3 sm:flex-row sm:items-end">
+      {% if filter_status %}<input type="hidden" name="status" value="{{ filter_status }}" />{% endif %}
+      <div class="min-w-0 flex-1">
+        <label for="dq-search" class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Search</label>
+        <input id="dq-search" type="search" name="q" value="{{ search_query or '' }}" placeholder="Search checks…"
+               class="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-3 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500" />
+      </div>
+      <div class="sm:w-56">
+        <label for="dq-conn" class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Connection</label>
+        <select id="dq-conn" name="connection" onchange="this.form.submit()"
+                class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+          <option value="">All connections</option>
+          {% for conn in connections or [] %}
+          <option value="{{ conn.id }}" {% if selected_connection_id == conn.id %}selected{% endif %}>{{ conn.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700">Apply</button>
+    </form>
+  </div>
+
+  {% if checks %}
+  <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+    {% for check in checks %}
+    <div class="flex flex-col rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <h3 class="font-semibold text-gray-900 dark:text-white">{{ check.name }}</h3>
+          {% if check.description %}
+          <p class="mt-1 line-clamp-2 text-sm text-gray-500 dark:text-gray-400">{{ check.description }}</p>
+          {% endif %}
+        </div>
+        {% set st = (check.latest_status or '') | lower %}
+        {% if st in ('healthy', 'passed', 'pass', 'ok') %}
+        <span class="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{{ check.latest_status }}</span>
+        {% elif st in ('warning', 'warn') %}
+        <span class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200">{{ check.latest_status }}</span>
+        {% elif st in ('failed', 'fail', 'error') %}
+        <span class="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-800 dark:bg-rose-950 dark:text-rose-200">{{ check.latest_status }}</span>
+        {% else %}
+        <span class="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">{{ check.latest_status or 'unknown' }}</span>
+        {% endif %}
+      </div>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <span class="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200">{{ check.connection_name }}</span>
+        <span class="inline-flex items-center rounded-md border border-gray-200 px-2 py-0.5 text-xs text-gray-600 dark:border-gray-600 dark:text-gray-300">{{ check.connection_type }}</span>
+      </div>
+      {% if check.tables %}
+      <p class="mt-2 text-xs text-gray-500 dark:text-gray-400"><span class="font-medium text-gray-600 dark:text-gray-300">Tables:</span> {{ check.tables | join(', ') }}</p>
+      {% endif %}
+      <div class="mt-3 flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400">
+        {% if check.run_count is defined %}<span>{{ check.run_count }} run{% if check.run_count != 1 %}s{% endif %}</span>{% endif %}
+        {% if check.last_run_rel %}<span>{{ check.last_run_rel }}</span>{% endif %}
+      </div>
+      {% if check.next_run_at %}
+      <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Next: {{ check.next_run_at }}</p>
+      {% endif %}
+      <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4 dark:border-gray-800">
+        <button type="button"
+                hx-post="/ui/data-quality/{{ check.id }}/run"
+                hx-swap="none"
+                class="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Run Now
+        </button>
+        <a href="/ui/data-quality/{{ check.id }}"
+           class="inline-flex items-center gap-1 rounded-lg border border-transparent px-2.5 py-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">View</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="rounded-xl border border-dashed border-gray-300 bg-gray-50/50 py-16 text-center dark:border-gray-600 dark:bg-gray-900/50">
+    <p class="text-gray-600 dark:text-gray-300">No data quality checks yet.</p>
+    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Create a SodaCL check to monitor your tables.</p>
+    <a href="/ui/data-quality/new" class="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-500">Create your first check</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

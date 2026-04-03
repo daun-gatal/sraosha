@@ -1,8 +1,12 @@
 import uuid
 
-from sqlalchemy import String, TypeDecorator
+from sqlalchemy import JSON, String, TypeDecorator
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase
+
+# JSON on SQLite; JSONB on PostgreSQL (tests use SQLite metadata.create_all).
+JSONColumnType = JSON().with_variant(JSONB(), "postgresql")
 
 
 class UUIDType(TypeDecorator):

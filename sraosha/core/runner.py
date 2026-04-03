@@ -1,7 +1,17 @@
+import io
 import logging
 import time
 
 logger = logging.getLogger(__name__)
+
+
+def _capture_validation_logs() -> tuple[logging.Handler, io.StringIO]:
+    """Create a handler that captures soda/datacontract log output into a buffer."""
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    return handler, buf
 
 
 class ContractRunner:
@@ -19,12 +29,20 @@ class ContractRunner:
 
         dc = DataContract(data_contract_file=self.contract_path)
 
+        handler, buf = _capture_validation_logs()
+        target_loggers = [logging.getLogger(n) for n in ("soda", "datacontract")]
+        for lg in target_loggers:
+            lg.addHandler(handler)
+
         start = time.monotonic()
         try:
             run_result = dc.test()
         except Exception as exc:
             logger.error("datacontract-cli test failed: %s", exc)
             raise
+        finally:
+            for lg in target_loggers:
+                lg.removeHandler(handler)
 
         duration = time.monotonic() - start
 
@@ -59,6 +77,7 @@ class ContractRunner:
             "checks_failed": checks_failed,
             "failures": failures,
             "duration_seconds": round(duration, 3),
+            "log": buf.getvalue(),
         }
 
 

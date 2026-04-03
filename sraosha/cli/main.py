@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -14,6 +15,21 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+
+
+@app.callback()
+def _main(
+    config: Optional[str] = typer.Option(
+        None,
+        "--config",
+        help="Path to .sraosha config file (or set SRAOSHA_CONFIG).",
+    ),
+):
+    """Global options applied before any subcommand."""
+    if config:
+        from sraosha.config import reload_settings
+
+        reload_settings(config)
 
 
 @app.command()
@@ -138,60 +154,6 @@ def history(
 
 
 @app.command()
-def drift(
-    contract: str = typer.Option(..., "--contract", "-c", help="Contract ID"),
-):
-    """Show current drift status for a contract (requires API)."""
-    import httpx
-
-    from sraosha.config import settings
-
-    try:
-        resp = httpx.get(
-            f"http://{settings.API_HOST}:{settings.API_PORT}/api/v1/drift/{contract}",
-            timeout=10.0,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as exc:
-        console.print(f"[red]Failed to connect to API: {exc}[/red]")
-        raise typer.Exit(1)
-
-    if not data:
-        console.print("No drift data for this contract.")
-        return
-
-    table = Table(title=f"Drift Status: {contract}")
-    table.add_column("Metric")
-    table.add_column("Table.Column")
-    table.add_column("Value")
-    table.add_column("Warning")
-    table.add_column("Breach")
-    table.add_column("Status")
-
-    for m in data:
-        col = f"{m['table_name']}.{m.get('column_name', '—')}"
-        status_str = ""
-        if m.get("is_breached"):
-            status_str = "[red]BREACHED[/red]"
-        elif m.get("is_warning"):
-            status_str = "[yellow]WARNING[/yellow]"
-        else:
-            status_str = "[green]OK[/green]"
-
-        table.add_row(
-            m["metric_type"],
-            col,
-            f"{m['value']:.4f}",
-            f"{m.get('warning_threshold', '—')}",
-            f"{m.get('breach_threshold', '—')}",
-            status_str,
-        )
-
-    console.print(table)
-
-
-@app.command()
 def register(
     contract: str = typer.Option(..., "--contract", "-c", help="Path to contract YAML"),
     team: str = typer.Option(..., "--team", "-t", help="Owner team name"),
@@ -210,19 +172,36 @@ def register(
     raw = path.read_text(encoding="utf-8")
     data = yaml.safe_load(raw)
 
+    base = f"http://{settings.API_HOST}:{settings.API_PORT}/api/v1"
+    team_id: str | None = None
+    try:
+        tr = httpx.get(f"{base}/teams", timeout=10.0)
+        tr.raise_for_status()
+        for row in tr.json():
+            if row.get("name") == team:
+                team_id = row.get("id")
+                break
+        if not team_id:
+            cr = httpx.post(f"{base}/teams", json={"name": team}, timeout=10.0)
+            if cr.status_code in (200, 201):
+                team_id = cr.json().get("id")
+    except Exception:
+        team_id = None
+
     payload = {
         "contract_id": data.get("id", path.stem),
         "title": data.get("info", {}).get("title", path.stem),
         "description": data.get("info", {}).get("description"),
         "file_path": str(path.resolve()),
-        "owner_team": team,
+        "team_id": team_id,
+        "alerting_profile_id": None,
         "raw_yaml": raw,
         "enforcement_mode": data.get("x-sraosha", {}).get("enforcement_mode", "block"),
     }
 
     try:
         resp = httpx.post(
-            f"http://{settings.API_HOST}:{settings.API_PORT}/api/v1/contracts",
+            f"{base}/contracts",
             json=payload,
             timeout=10.0,
         )
@@ -272,20 +251,77 @@ def impact(
 
 @app.command()
 def serve(
-    host: str = typer.Option("0.0.0.0", "--host", help="Bind host"),
-    port: int = typer.Option(8000, "--port", help="Bind port"),
+    host: Optional[str] = typer.Option(None, "--host", help="Bind host"),
+    port: Optional[int] = typer.Option(None, "--port", help="Bind port"),
     reload: bool = typer.Option(False, "--reload", help="Enable auto-reload"),
 ):
-    """Start the Sraosha API server."""
+    """Start the Sraosha API server and dashboard."""
     import uvicorn
+
+    from sraosha.config import settings
 
     uvicorn.run(
         "sraosha.api.app:create_app",
         factory=True,
-        host=host,
-        port=port,
+        host=host or settings.API_HOST,
+        port=port or settings.API_PORT,
         reload=reload,
     )
+
+
+@app.command()
+def worker(
+    loglevel: str = typer.Option("info", "--loglevel", help="Celery log level."),
+    concurrency: int = typer.Option(
+        4,
+        "--concurrency",
+        "-c",
+        help="Number of worker processes/threads.",
+    ),
+    hostname: Optional[str] = typer.Option(
+        None,
+        "--hostname",
+        "-n",
+        help="Worker hostname (use distinct values for multiple workers, e.g. w1@%%h).",
+    ),
+    queues: Optional[str] = typer.Option(
+        None,
+        "--queues",
+        "-Q",
+        help="Comma-separated queue names (default: Celery default queue).",
+    ),
+):
+    """Run a Celery worker. Use one `sraosha beat` plus workers with distinct `--hostname`."""
+    cmd = [
+        "celery",
+        "-A",
+        "sraosha.tasks.celery_app",
+        "worker",
+        f"--loglevel={loglevel}",
+        f"--concurrency={concurrency}",
+    ]
+    if hostname:
+        cmd.append(f"--hostname={hostname}")
+    if queues:
+        cmd.extend(["-Q", queues])
+    try:
+        os.execvp(cmd[0], cmd)
+    except OSError as exc:
+        console.print(f"[red]Failed to start worker: {exc}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def beat(
+    loglevel: str = typer.Option("info", "--loglevel", help="Celery beat log level."),
+):
+    """Run Celery beat. Use a single beat process with one or more workers."""
+    cmd = ["celery", "-A", "sraosha.tasks.celery_app", "beat", f"--loglevel={loglevel}"]
+    try:
+        os.execvp(cmd[0], cmd)
+    except OSError as exc:
+        console.print(f"[red]Failed to start beat: {exc}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command("db")

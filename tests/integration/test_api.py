@@ -1,5 +1,7 @@
 """API integration tests using in-memory SQLite + httpx.AsyncClient."""
 
+import uuid
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -45,21 +47,27 @@ async def client():
         yield ac
 
 
-SAMPLE_CONTRACT = {
-    "contract_id": "orders-v1",
-    "title": "Orders",
-    "description": "Test contract",
-    "file_path": "contracts/orders.yaml",
-    "owner_team": "team-checkout",
-    "raw_yaml": "id: orders-v1\ninfo:\n  title: Orders",
-    "enforcement_mode": "block",
-}
+async def _sample_contract_payload(client) -> dict:
+    tr = await client.post("/api/v1/teams", json={"name": "team-checkout"})
+    assert tr.status_code == 201
+    tid = tr.json()["id"]
+    return {
+        "contract_id": "orders-v1",
+        "title": "Orders",
+        "description": "Test contract",
+        "file_path": "contracts/orders.yaml",
+        "team_id": tid,
+        "alerting_profile_id": None,
+        "raw_yaml": "id: orders-v1\ninfo:\n  title: Orders",
+        "enforcement_mode": "block",
+    }
 
 
 class TestContractsAPI:
     @pytest.mark.asyncio
     async def test_create_contract(self, client):
-        resp = await client.post("/api/v1/contracts", json=SAMPLE_CONTRACT)
+        payload = await _sample_contract_payload(client)
+        resp = await client.post("/api/v1/contracts", json=payload)
         assert resp.status_code == 201
         data = resp.json()
         assert data["contract_id"] == "orders-v1"
@@ -67,7 +75,7 @@ class TestContractsAPI:
 
     @pytest.mark.asyncio
     async def test_list_contracts(self, client):
-        await client.post("/api/v1/contracts", json=SAMPLE_CONTRACT)
+        await client.post("/api/v1/contracts", json=await _sample_contract_payload(client))
         resp = await client.get("/api/v1/contracts")
         assert resp.status_code == 200
         data = resp.json()
@@ -76,7 +84,7 @@ class TestContractsAPI:
 
     @pytest.mark.asyncio
     async def test_get_contract(self, client):
-        await client.post("/api/v1/contracts", json=SAMPLE_CONTRACT)
+        await client.post("/api/v1/contracts", json=await _sample_contract_payload(client))
         resp = await client.get("/api/v1/contracts/orders-v1")
         assert resp.status_code == 200
         data = resp.json()
@@ -90,7 +98,7 @@ class TestContractsAPI:
 
     @pytest.mark.asyncio
     async def test_update_contract(self, client):
-        await client.post("/api/v1/contracts", json=SAMPLE_CONTRACT)
+        await client.post("/api/v1/contracts", json=await _sample_contract_payload(client))
         resp = await client.put(
             "/api/v1/contracts/orders-v1",
             json={"title": "Updated Orders", "enforcement_mode": "warn"},
@@ -101,7 +109,7 @@ class TestContractsAPI:
 
     @pytest.mark.asyncio
     async def test_delete_contract(self, client):
-        await client.post("/api/v1/contracts", json=SAMPLE_CONTRACT)
+        await client.post("/api/v1/contracts", json=await _sample_contract_payload(client))
         resp = await client.delete("/api/v1/contracts/orders-v1")
         assert resp.status_code == 204
 
@@ -110,9 +118,18 @@ class TestContractsAPI:
 
     @pytest.mark.asyncio
     async def test_duplicate_contract(self, client):
-        await client.post("/api/v1/contracts", json=SAMPLE_CONTRACT)
-        resp = await client.post("/api/v1/contracts", json=SAMPLE_CONTRACT)
+        payload = await _sample_contract_payload(client)
+        await client.post("/api/v1/contracts", json=payload)
+        resp = await client.post("/api/v1/contracts", json=payload)
         assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_create_contract_unknown_team_id(self, client):
+        payload = await _sample_contract_payload(client)
+        payload["team_id"] = str(uuid.uuid4())
+        resp = await client.post("/api/v1/contracts", json=payload)
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "team_id not found"
 
 
 class TestRunsAPI:
@@ -127,14 +144,6 @@ class TestRunsAPI:
         resp = await client.get("/api/v1/runs/summary")
         assert resp.status_code == 200
         assert resp.json()["items"] == []
-
-
-class TestDriftAPI:
-    @pytest.mark.asyncio
-    async def test_drift_alerts_empty(self, client):
-        resp = await client.get("/api/v1/drift/alerts")
-        assert resp.status_code == 200
-        assert resp.json() == []
 
 
 class TestComplianceAPI:
@@ -162,7 +171,7 @@ class TestImpactAPI:
 
     @pytest.mark.asyncio
     async def test_graph_with_contracts(self, client):
-        await client.post("/api/v1/contracts", json=SAMPLE_CONTRACT)
+        await client.post("/api/v1/contracts", json=await _sample_contract_payload(client))
         resp = await client.get("/api/v1/impact/graph")
         assert resp.status_code == 200
         data = resp.json()
@@ -170,8 +179,25 @@ class TestImpactAPI:
         assert data["nodes"][0]["id"] == "orders-v1"
 
     @pytest.mark.asyncio
+    async def test_lineage_subgraph(self, client):
+        await client.post("/api/v1/contracts", json=await _sample_contract_payload(client))
+        resp = await client.get(
+            "/api/v1/impact/lineage/orders-v1",
+            params={"upstream_depth": 1, "downstream_depth": 1},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["nodes"]) >= 1
+        assert data["nodes"][0]["id"] == "orders-v1"
+
+    @pytest.mark.asyncio
+    async def test_lineage_not_found(self, client):
+        resp = await client.get("/api/v1/impact/lineage/missing-contract")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_analyze_impact(self, client):
-        await client.post("/api/v1/contracts", json=SAMPLE_CONTRACT)
+        await client.post("/api/v1/contracts", json=await _sample_contract_payload(client))
         resp = await client.post(
             "/api/v1/impact/orders-v1/analyze",
             json={"changed_fields": ["customer_id"]},

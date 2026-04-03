@@ -1,5 +1,5 @@
 import yaml
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +38,27 @@ async def _build_analyzer(db: AsyncSession) -> ImpactAnalyzer:
 async def get_graph(db: AsyncSession = Depends(get_db)):
     analyzer = await _build_analyzer(db)
     graph_data = analyzer.to_json()
+    return DependencyGraphResponse(
+        nodes=[GraphNode(**n) for n in graph_data["nodes"]],
+        edges=[GraphEdge(**e) for e in graph_data["edges"]],
+    )
+
+
+@router.get("/lineage/{contract_id}", response_model=DependencyGraphResponse)
+async def get_lineage(
+    contract_id: str,
+    db: AsyncSession = Depends(get_db),
+    upstream_depth: int = Query(default=2, ge=0, le=10),
+    downstream_depth: int = Query(default=2, ge=0, le=10),
+):
+    contract_result = await db.execute(
+        select(Contract).where(Contract.contract_id == contract_id)
+    )
+    if not contract_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    analyzer = await _build_analyzer(db)
+    graph_data = analyzer.lineage_json(contract_id, upstream_depth, downstream_depth)
     return DependencyGraphResponse(
         nodes=[GraphNode(**n) for n in graph_data["nodes"]],
         edges=[GraphEdge(**e) for e in graph_data["edges"]],

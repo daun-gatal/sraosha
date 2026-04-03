@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ContractCreateRequest(BaseModel):
@@ -9,7 +9,8 @@ class ContractCreateRequest(BaseModel):
     title: str
     description: str | None = None
     file_path: str
-    owner_team: str | None = None
+    team_id: uuid.UUID | None = None
+    alerting_profile_id: uuid.UUID | None = None
     raw_yaml: str
     enforcement_mode: str = "block"
 
@@ -18,7 +19,8 @@ class ContractUpdateRequest(BaseModel):
     title: str | None = None
     description: str | None = None
     file_path: str | None = None
-    owner_team: str | None = None
+    team_id: uuid.UUID | None = None
+    alerting_profile_id: uuid.UUID | None = None
     raw_yaml: str | None = None
     enforcement_mode: str | None = None
     is_active: bool | None = None
@@ -30,6 +32,8 @@ class ContractResponse(BaseModel):
     title: str
     description: str | None
     file_path: str
+    team_id: uuid.UUID | None
+    alerting_profile_id: uuid.UUID | None
     owner_team: str | None
     enforcement_mode: str
     is_active: bool

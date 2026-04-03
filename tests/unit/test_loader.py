@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -33,8 +34,7 @@ class TestFromUrl:
 
 
 class TestFromGit:
-    @patch("git.Repo.clone_from")
-    def test_loads_from_git(self, mock_clone, tmp_path):
+    def test_loads_from_git(self, tmp_path):
         contract_file = tmp_path / "contract.yaml"
         contract_file.write_text("id: git-v1\ninfo:\n  title: Git\n  version: 1.0.0")
 
@@ -43,9 +43,11 @@ class TestFromGit:
             dest.write_text(contract_file.read_text())
             return MagicMock()
 
-        mock_clone.side_effect = clone_side_effect
+        mock_git = MagicMock()
+        mock_git.Repo.clone_from = MagicMock(side_effect=clone_side_effect)
 
-        data = ContractLoader.from_git("https://github.com/org/repo.git", "contract.yaml")
+        with patch.dict(sys.modules, {"git": mock_git}):
+            data = ContractLoader.from_git("https://github.com/org/repo.git", "contract.yaml")
         assert data["id"] == "git-v1"
 
 

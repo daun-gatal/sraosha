@@ -1,0 +1,444 @@
+{% extends "base.html" %}
+{% block title %}Sraosha — Lineage{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.2/dist/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+{% endblock %}
+
+{% block breadcrumbs %}
+<h1 class="truncate text-sm font-semibold text-gray-900 dark:text-white">Lineage</h1>
+<p class="truncate text-xs text-gray-500 dark:text-gray-400">Contract dependencies, column mappings, and impact analysis</p>
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col gap-4 xl:flex-row xl:items-start" x-data="impactLineage()" x-init="init()" id="impact-root">
+
+  <div class="min-w-0 flex-1 space-y-3">
+    <!-- Stats -->
+    <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div class="card rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+        <p class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Contracts</p>
+        <p class="text-lg font-bold tabular-nums text-gray-900 dark:text-white">{{ stats.total_contracts }}</p>
+      </div>
+      <div class="card rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+        <p class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Dependencies</p>
+        <p class="text-lg font-bold tabular-nums text-gray-900 dark:text-white">{{ stats.total_dependencies }}</p>
+      </div>
+      <div class="card rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+        <p class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Avg. conn.</p>
+        <p class="text-lg font-bold tabular-nums text-gray-900 dark:text-white">{{ stats.avg_connections }}</p>
+      </div>
+      <div class="card rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+        <p class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Isolated</p>
+        <p class="text-lg font-bold tabular-nums text-gray-900 dark:text-white">{{ stats.isolated }}</p>
+      </div>
+      <div class="card rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+        <p class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Explicit</p>
+        <p class="text-lg font-bold tabular-nums text-gray-900 dark:text-white">{{ stats.explicit_links }}</p>
+      </div>
+      <div class="card rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+        <p class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Inferred</p>
+        <p class="text-lg font-bold tabular-nums text-gray-900 dark:text-white">{{ stats.inferred_links }}</p>
+      </div>
+    </div>
+
+    <!-- Lineage controls (GET → shareable URLs) -->
+    <form method="get" action="/ui/impact" class="card flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <div class="min-w-[200px] flex-1">
+        <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Focus contract</label>
+        <select name="focus" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+          <option value="">Full graph (all contracts)</option>
+          {% for c in all_contracts %}
+          <option value="{{ c.id }}" {% if lineage_focus == c.id %}selected{% endif %}>{{ c.title }} ({{ c.id }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="w-24">
+        <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Upstream</label>
+        <input type="number" name="upstream_depth" min="0" max="10" value="{{ lineage_upstream_depth }}"
+               class="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+      </div>
+      <div class="w-28">
+        <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Downstream</label>
+        <input type="number" name="downstream_depth" min="0" max="10" value="{{ lineage_downstream_depth }}"
+               class="w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+      </div>
+      <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Apply</button>
+      {% if lineage_focus %}
+      <a href="/ui/impact" class="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800">Clear focus</a>
+      {% endif %}
+    </form>
+
+    <!-- Graph card -->
+    <div class="card overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 dark:border-gray-700">
+        <p class="text-xs text-gray-500 dark:text-gray-400">
+          {% if lineage_focus %}Lineage around <span class="font-mono text-gray-800 dark:text-gray-200">{{ lineage_focus }}</span>{% else %}All contracts{% endif %}
+        </p>
+        <div class="flex flex-wrap items-center gap-1">
+          <button type="button" @click="zoomIn()" class="rounded border border-gray-200 bg-white p-1.5 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300" title="Zoom in">+</button>
+          <button type="button" @click="zoomOut()" class="rounded border border-gray-200 bg-white p-1.5 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300" title="Zoom out">−</button>
+          <button type="button" @click="fit()" class="rounded border border-gray-200 bg-white p-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300" title="Fit">Fit</button>
+          <button type="button" @click="resetLayout()" class="rounded border border-gray-200 bg-white p-1.5 text-xs text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300" title="Re-layout">Layout</button>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-x-4 gap-y-1 border-b border-gray-100 px-3 py-1.5 text-[10px] dark:border-gray-800">
+        <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-emerald-500"></span> Passed</span>
+        <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-rose-500"></span> Failed</span>
+        <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-amber-500"></span> Error</span>
+        <span class="flex items-center gap-1"><span class="h-2 w-2 rounded-full bg-gray-400"></span> No runs</span>
+        <span class="border-l border-gray-200 pl-3 dark:border-gray-700">Solid edge = explicit · Dashed = inferred</span>
+      </div>
+      <div id="cy" class="h-[min(70vh,640px)] min-h-[420px] w-full bg-gray-50 dark:bg-gray-950"></div>
+    </div>
+  </div>
+
+  <!-- Side panel -->
+  <aside class="card w-full shrink-0 space-y-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)] xl:w-96 xl:overflow-y-auto">
+    <div class="flex gap-1 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-800">
+      <button type="button" @click="panelTab = 'details'" class="flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors"
+              :class="panelTab === 'details' ? 'bg-white text-indigo-700 shadow dark:bg-gray-900 dark:text-indigo-300' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400'">Details</button>
+      <button type="button" @click="panelTab = 'analyze'" class="flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors"
+              :class="panelTab === 'analyze' ? 'bg-white text-indigo-700 shadow dark:bg-gray-900 dark:text-indigo-300' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400'">Impact</button>
+      <button type="button" @click="panelTab = 'link'" class="flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors"
+              :class="panelTab === 'link' ? 'bg-white text-indigo-700 shadow dark:bg-gray-900 dark:text-indigo-300' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400'">Link</button>
+    </div>
+
+    <!-- Node / edge details -->
+    <div x-show="panelTab === 'details'" x-cloak class="space-y-3">
+      <template x-if="selectedEdge">
+        <div class="space-y-2">
+          <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Edge</p>
+          <p class="font-mono text-xs text-gray-800 dark:text-gray-200"><span x-text="selectedEdge.source"></span> → <span x-text="selectedEdge.target"></span></p>
+          <p class="text-xs"><span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" x-text="selectedEdge.edge_type"></span></p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead><tr class="border-b border-gray-200 dark:border-gray-700"><th class="py-1 pr-2">Upstream</th><th class="py-1">Downstream</th><th class="py-1 pl-2"></th></tr></thead>
+              <tbody>
+                <template x-for="(row, idx) in (selectedEdge.column_pairs || [])" :key="idx">
+                  <tr class="border-b border-gray-100 dark:border-gray-800">
+                    <td class="py-1 font-mono text-[10px]" x-text="row.upstream_ref"></td>
+                    <td class="py-1 font-mono text-[10px]" x-text="row.downstream_ref"></td>
+                    <td class="py-1 pl-2 text-[10px] text-gray-500" x-text="row.inferred ? 'inferred' : ''"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <p x-show="!selectedEdge.column_pairs || !selectedEdge.column_pairs.length" class="text-xs text-gray-500">No field mapping on this edge.</p>
+        </div>
+      </template>
+      <template x-if="selectedNode && !selectedEdge">
+        <div class="space-y-2">
+          <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Contract</p>
+          <h3 class="text-base font-semibold text-gray-900 dark:text-white" x-text="selectedNode.title || selectedNode.label"></h3>
+          <p class="font-mono text-xs text-gray-500" x-text="selectedNode.id"></p>
+          <p class="text-xs text-gray-600 dark:text-gray-300" x-show="selectedNode.owner_team"><span class="text-gray-400">Team</span> · <span x-text="selectedNode.owner_team"></span></p>
+          <p class="text-xs" x-show="selectedNode.platform"><span class="text-gray-400">Platform</span> · <span x-text="selectedNode.platform"></span></p>
+          <p class="text-xs text-gray-500">Status: <span x-text="selectedNode.status || 'none'"></span></p>
+          <a :href="'/ui/contracts/' + selectedNode.id" class="inline-flex rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-500">Open contract</a>
+        </div>
+      </template>
+      <template x-if="!selectedNode && !selectedEdge">
+        <p class="text-sm text-gray-500 dark:text-gray-400">Select a node or edge on the graph. Use the form above to focus lineage on one contract.</p>
+      </template>
+    </div>
+
+    <!-- Analyze -->
+    <div x-show="panelTab === 'analyze'" x-cloak>
+      <form hx-post="/ui/impact/analyze" hx-target="#impact-result" hx-swap="innerHTML" class="space-y-3">
+        <p class="text-xs text-gray-500 dark:text-gray-400">Pick a contract and fields to highlight downstream impact on the graph.</p>
+        <div>
+          <label class="mb-1 block text-xs font-medium">Contract</label>
+          <select name="contract_id" id="impact-contract" x-model="analyzeContractId" @change="onContractChange()"
+                  class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+            <option value="">Select...</option>
+            {% for c in all_contracts %}
+            <option value="{{ c.id }}">{{ c.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-medium">Changed fields</label>
+          <input type="text" name="changed_fields" x-model="analyzeFieldsText" placeholder="field_a, field_b"
+                 class="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white" />
+        </div>
+        <template x-if="availableFields.length > 0">
+          <div class="flex flex-wrap gap-1">
+            <template x-for="f in availableFields" :key="f">
+              <button type="button" @click="toggleField(f)" class="rounded border px-2 py-0.5 font-mono text-[10px]"
+                      :class="selectedFields.includes(f) ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950' : 'border-gray-200 dark:border-gray-600'"
+                      x-text="f"></button>
+            </template>
+          </div>
+        </template>
+        <button type="submit" class="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500">Analyze impact</button>
+      </form>
+      <div id="impact-result" class="mt-3 min-h-[1rem]"></div>
+    </div>
+
+    <!-- Link -->
+    <div x-show="panelTab === 'link'" x-cloak x-data="linkPanel()">
+      <form method="post" action="/ui/impact/link" class="space-y-3">
+        <p class="text-xs text-gray-500 dark:text-gray-400">Declare <code class="text-[10px]">depends_on</code> with column mappings.</p>
+        <div>
+          <label class="mb-1 block text-xs">Upstream</label>
+          <select name="upstream_id" x-model="upstreamId" @change="onUpstreamChange()" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+            <option value="">Select...</option>
+            {% for c in all_contracts %}
+            <option value="{{ c.id }}">{{ c.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="mb-1 block text-xs">Downstream</label>
+          <select name="downstream_id" x-model="downstreamId" @change="onDownstreamChange()" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+            <option value="">Select...</option>
+            {% for c in all_contracts %}
+            <option value="{{ c.id }}">{{ c.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <template x-if="upstreamRefs.length > 0 || downstreamRefs.length > 0">
+          <div class="space-y-2">
+            <template x-for="(row, idx) in mappingRows" :key="idx">
+              <div class="flex items-center gap-1">
+                <select :name="'field_upstream[]'" x-model="row.upstream" class="min-w-0 flex-1 rounded border px-1 py-1 font-mono text-[10px] dark:border-gray-600 dark:bg-gray-800">
+                  <option value="">upstream</option>
+                  <template x-for="ref in upstreamRefs" :key="ref"><option :value="ref" x-text="ref"></option></template>
+                </select>
+                <span class="text-gray-400">→</span>
+                <select :name="'field_local[]'" x-model="row.local" class="min-w-0 flex-1 rounded border px-1 py-1 font-mono text-[10px] dark:border-gray-600 dark:bg-gray-800">
+                  <option value="">downstream</option>
+                  <template x-for="ref in downstreamRefs" :key="ref"><option :value="ref" x-text="ref"></option></template>
+                </select>
+                <button type="button" @click="mappingRows.splice(idx,1)" class="text-rose-500">×</button>
+              </div>
+            </template>
+            <button type="button" @click="mappingRows.push({upstream:'',local:''})" class="text-xs text-violet-600">+ Add mapping</button>
+          </div>
+        </template>
+        <button type="submit" class="w-full rounded-lg bg-violet-600 py-2 text-sm font-medium text-white hover:bg-violet-500">Create link</button>
+      </form>
+    </div>
+  </aside>
+</div>
+
+<script>
+const _fieldsByContract = {{ fields_by_contract_json | safe }};
+
+function linkPanel() {
+  function _buildRefs(contractId) {
+    const tables = _fieldsByContract[contractId] || {};
+    const refs = [];
+    for (const [tbl, fields] of Object.entries(tables)) {
+      for (const f of fields) refs.push(tbl + '.' + f);
+    }
+    return refs.sort();
+  }
+  return {
+    upstreamId: '', downstreamId: '', upstreamRefs: [], downstreamRefs: [],
+    mappingRows: [{ upstream: '', local: '' }],
+    onUpstreamChange() { this.upstreamRefs = _buildRefs(this.upstreamId); },
+    onDownstreamChange() { this.downstreamRefs = _buildRefs(this.downstreamId); },
+  };
+}
+
+function impactLineage() {
+  return {
+    _cy: null,
+    panelTab: 'details',
+    selectedNode: null,
+    selectedEdge: null,
+    analyzeContractId: '',
+    analyzeFieldsText: '',
+    selectedFields: [],
+    availableFields: [],
+
+    init() {
+      this.$nextTick(() => this._initGraph());
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { this.selectedNode = null; this.selectedEdge = null; if (this._cy) this._cy.nodes().unselect(); this._cy.edges().unselect(); }
+      });
+      document.body.addEventListener('htmx:afterSwap', (evt) => {
+        if (!evt.detail || !evt.detail.target || evt.detail.target.id !== 'impact-result') return;
+        const el = evt.detail.target.querySelector('#impact-affected-ids');
+        if (!el || !this._cy) return;
+        try {
+          const ids = JSON.parse(el.textContent || '[]');
+          this._cy.nodes().removeClass('impact-hit');
+          const set = new Set(ids);
+          this._cy.nodes().forEach(n => { if (set.has(n.id())) n.addClass('impact-hit'); });
+        } catch (e) {}
+      });
+    },
+
+    onContractChange() {
+      const tables = _fieldsByContract[this.analyzeContractId] || {};
+      const all = new Set();
+      for (const fields of Object.values(tables)) fields.forEach(f => all.add(f));
+      this.availableFields = [...all].sort();
+      this.selectedFields = [];
+      this.analyzeFieldsText = '';
+    },
+
+    toggleField(f) {
+      const i = this.selectedFields.indexOf(f);
+      if (i === -1) this.selectedFields.push(f); else this.selectedFields.splice(i, 1);
+      this.analyzeFieldsText = this.selectedFields.join(', ');
+    },
+
+    zoomIn() { if (this._cy) this._cy.zoom(this._cy.zoom() * 1.25); },
+    zoomOut() { if (this._cy) this._cy.zoom(this._cy.zoom() / 1.25); },
+    fit() { if (this._cy) this._cy.fit(undefined, 48); },
+
+    resetLayout() {
+      if (!this._cy) return;
+      const opts = (typeof cytoscapeDagre !== 'undefined')
+        ? { name: 'dagre', rankDir: 'LR', spacingFactor: 1.2, nodeSep: 50, edgeSep: 20, rankSep: 80, animate: true }
+        : { name: 'breadthfirst', directed: true, animate: true };
+      this._cy.layout(opts).run();
+    },
+
+    _platformClass(platform) {
+      const p = (platform || 'unknown').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return 'pf-' + (p || 'unknown');
+    },
+
+    _initGraph() {
+      const raw = {{ graph_elements_json | safe }};
+      const bundled = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const nodeEls = (bundled.nodes || []).map(n => {
+        const d = n.data || {};
+        const cls = [this._platformClass(d.platform)];
+        if (d.is_focus === '1') cls.push('focus-root');
+        return { data: d, classes: cls.join(' ') };
+      });
+      const edgeEls = (bundled.edges || []).map(e => ({ data: e.data }));
+      const elements = nodeEls.concat(edgeEls);
+      const el = document.getElementById('cy');
+      if (!el || typeof cytoscape === 'undefined') return;
+
+      if (typeof cytoscape !== 'undefined' && typeof cytoscapeDagre !== 'undefined') {
+        cytoscape.use(cytoscapeDagre);
+      }
+
+      const dark = document.documentElement.classList.contains('dark');
+      const layoutOpts = (typeof cytoscapeDagre !== 'undefined')
+        ? { name: 'dagre', rankDir: 'LR', spacingFactor: 1.15, rankSep: 72, nodeSep: 40, edgeSep: 16 }
+        : { name: 'breadthfirst', directed: true, spacingFactor: 1.2 };
+
+      const cy = cytoscape({
+        container: el,
+        elements,
+        layout: layoutOpts,
+        wheelSensitivity: 0.35,
+        style: [
+          {
+            selector: 'node',
+            style: {
+              shape: 'roundrectangle',
+              width: 200,
+              height: 52,
+              label: 'data(label)',
+              'font-size': '10px',
+              'font-weight': '600',
+              'text-wrap': 'wrap',
+              'text-max-width': '180px',
+              'text-valign': 'center',
+              'text-halign': 'center',
+              'text-margin-y': 0,
+              color: dark ? '#e5e7eb' : '#111827',
+              'background-color': dark ? '#1f2937' : '#ffffff',
+              'border-width': 2,
+              'border-color': dark ? '#4b5563' : '#d1d5db',
+              padding: '8px',
+            },
+          },
+          { selector: 'node.focus-root', style: { 'border-width': 3, 'border-color': '#6366f1', 'background-color': dark ? '#312e81' : '#eef2ff' } },
+          { selector: 'node.pf-postgres', style: { 'border-left-width': 5, 'border-left-color': '#336791' } },
+          { selector: 'node.pf-mysql', style: { 'border-left-color': '#4479A1', 'border-left-width': 5 } },
+          { selector: 'node.pf-bigquery', style: { 'border-left-color': '#4285F4', 'border-left-width': 5 } },
+          { selector: 'node.pf-snowflake', style: { 'border-left-color': '#29B5E8', 'border-left-width': 5 } },
+          { selector: 'node.pf-redshift', style: { 'border-left-color': '#8B0000', 'border-left-width': 5 } },
+          { selector: 'node.pf-databricks', style: { 'border-left-color': '#FF3621', 'border-left-width': 5 } },
+          { selector: 'node.pf-trino', style: { 'border-left-color': '#DD00A1', 'border-left-width': 5 } },
+          { selector: 'node.pf-duckdb', style: { 'border-left-color': '#FFD700', 'border-left-width': 5 } },
+          { selector: 'node.pf-unknown', style: { 'border-left-color': '#9ca3af', 'border-left-width': 5 } },
+          { selector: 'node[status="passed"]', style: { 'border-color': '#10b981' } },
+          { selector: 'node[status="failed"]', style: { 'border-color': '#f43f5e' } },
+          { selector: 'node[status="error"]', style: { 'border-color': '#f59e0b' } },
+          { selector: 'node:selected', style: { 'border-color': '#6366f1', 'border-width': 3 } },
+          { selector: 'node.impact-hit', style: { 'background-color': '#fef3c7', 'border-color': '#f59e0b' } },
+          {
+            selector: 'edge[edge_type="explicit"]',
+            style: {
+              width: 2.5,
+              'line-color': '#6366f1',
+              'target-arrow-color': '#6366f1',
+              'target-arrow-shape': 'triangle',
+              'curve-style': 'bezier',
+              'arrow-scale': 0.9,
+              label: 'data(label)',
+              'font-size': '9px',
+              color: dark ? '#a5b4fc' : '#4338ca',
+              'text-background-opacity': 1,
+              'text-background-color': dark ? '#030712' : '#f9fafb',
+              'text-background-padding': '2px',
+            },
+          },
+          {
+            selector: 'edge[edge_type="inferred"]',
+            style: {
+              width: 1.5,
+              'line-color': '#a78bfa',
+              'target-arrow-color': '#a78bfa',
+              'line-style': 'dashed',
+              'line-dash-pattern': [6, 4],
+              'target-arrow-shape': 'triangle',
+              'curve-style': 'bezier',
+              'arrow-scale': 0.75,
+              label: 'data(label)',
+              'font-size': '9px',
+              color: dark ? '#c4b5fd' : '#6d28d9',
+              'text-background-opacity': 1,
+              'text-background-color': dark ? '#030712' : '#f9fafb',
+              'text-background-padding': '2px',
+            },
+          },
+          { selector: 'edge:selected', style: { width: 4, 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b' } },
+        ],
+      });
+
+      this._cy = cy;
+      const self = this;
+
+      cy.on('tap', 'node', (evt) => {
+        const d = evt.target.data();
+        self.selectedNode = { ...d, title: d.title, column_pairs: undefined };
+        self.selectedEdge = null;
+        self.panelTab = 'details';
+        const sel = document.getElementById('impact-contract');
+        if (sel) { sel.value = d.id; self.analyzeContractId = d.id; self.onContractChange(); }
+      });
+
+      cy.on('tap', 'edge', (evt) => {
+        const d = evt.target.data();
+        self.selectedEdge = { ...d };
+        self.selectedNode = null;
+        self.panelTab = 'details';
+      });
+
+      cy.on('tap', (evt) => {
+        if (evt.target === cy) {
+          self.selectedNode = null;
+          self.selectedEdge = null;
+        }
+      });
+    },
+  };
+}
+</script>
+{% endblock %}

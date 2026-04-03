@@ -1,4 +1,40 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
+
+CONFIG_FILE_NAME = ".sraosha"
+
+
+def _find_config_file(explicit_path: str | None = None) -> Path | None:
+    """Resolve the config file path.
+
+    Resolution order:
+    1. Explicit path (from ``--config`` CLI flag)
+    2. ``SRAOSHA_CONFIG`` environment variable
+    3. ``.sraosha`` in the current working directory
+    4. ``~/.sraosha`` in the user's home directory
+    """
+    if explicit_path:
+        p = Path(explicit_path).expanduser()
+        return p if p.is_file() else None
+
+    env_path = os.environ.get("SRAOSHA_CONFIG")
+    if env_path:
+        p = Path(env_path).expanduser()
+        return p if p.is_file() else None
+
+    cwd_file = Path.cwd() / CONFIG_FILE_NAME
+    if cwd_file.is_file():
+        return cwd_file
+
+    home_file = Path.home() / CONFIG_FILE_NAME
+    if home_file.is_file():
+        return home_file
+
+    return None
 
 
 class SraoshaSettings(BaseSettings):
@@ -12,9 +48,6 @@ class SraoshaSettings(BaseSettings):
     CONTRACTS_DIR: str = "./contracts"
     DEFAULT_ENFORCEMENT_MODE: str = "block"
 
-    DRIFT_SCAN_INTERVAL_SECONDS: int = 3600
-    DRIFT_BASELINE_WINDOW: int = 14
-
     SLACK_WEBHOOK_URL: str | None = None
     SLACK_ENABLED: bool = False
 
@@ -25,9 +58,23 @@ class SraoshaSettings(BaseSettings):
     SMTP_FROM: str | None = None
     EMAIL_ENABLED: bool = False
 
-    DASHBOARD_URL: str = "http://localhost:5173"
+    ENCRYPTION_KEY: str = ""
 
-    model_config = {"env_file": ".env", "case_sensitive": True}
+    model_config = {"env_file": None, "case_sensitive": True, "extra": "ignore"}
 
 
-settings = SraoshaSettings()
+def load_settings(config_path: str | None = None) -> SraoshaSettings:
+    """Create a ``SraoshaSettings`` instance with the resolved config file."""
+    found = _find_config_file(config_path)
+    if found:
+        return SraoshaSettings(_env_file=str(found))
+    return SraoshaSettings()
+
+
+settings: SraoshaSettings = load_settings()
+
+
+def reload_settings(config_path: str | None = None) -> None:
+    """Re-initialise the global ``settings`` singleton (used by CLI ``--config``)."""
+    global settings  # noqa: PLW0603
+    settings = load_settings(config_path)

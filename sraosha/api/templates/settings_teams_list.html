@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Sraosha — Teams{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-3xl space-y-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <a href="/ui/" class="text-sm text-indigo-600 hover:underline">&larr; Overview</a>
+      <h1 class="mt-2 text-2xl font-bold text-gray-900 dark:text-white">Teams</h1>
+      <p class="text-sm text-gray-500 dark:text-gray-400">Ownership groups for contracts, compliance, and DQ checks.</p>
+    </div>
+    <a href="/ui/settings/teams/new" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">New team</a>
+  </div>
+  <div class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+      <thead class="bg-gray-50 dark:bg-gray-800/50">
+        <tr>
+          <th class="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Name</th>
+          <th class="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+        {% for t in teams %}
+        <tr>
+          <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{{ t.name }}</td>
+          <td class="px-4 py-3 text-right text-sm">
+            <a href="/ui/settings/teams/{{ t.id }}/edit" class="text-indigo-600 hover:underline">Edit</a>
+            <form method="post" action="/ui/settings/teams/{{ t.id }}/delete" class="inline ml-3" onsubmit="return confirm('Delete this team?');">
+              <button type="submit" class="text-rose-600 hover:underline">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2" class="px-4 py-8 text-center text-sm text-gray-500">No teams yet. Create one to assign contracts and checks.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

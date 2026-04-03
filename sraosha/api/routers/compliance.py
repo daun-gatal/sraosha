@@ -3,8 +3,11 @@ import uuid as uuid_mod
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from sraosha.alerting.profile_contact import slack_and_email_from_profile
 from sraosha.api.deps import get_db
+from sraosha.models.alerting import AlertingProfile
 from sraosha.models.contract import Contract
 from sraosha.models.team import ComplianceScore, Team
 from sraosha.schemas.compliance import (
@@ -21,8 +24,14 @@ router = APIRouter()
 
 @router.get("/teams", response_model=list[TeamWithScoreResponse])
 async def list_teams(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Team).order_by(Team.name))
-    teams = result.scalars().all()
+    result = await db.execute(
+        select(Team)
+        .options(
+            selectinload(Team.default_alerting_profile).selectinload(AlertingProfile.channels)
+        )
+        .order_by(Team.name)
+    )
+    teams = result.scalars().unique().all()
 
     responses = []
     for team in teams:
@@ -35,16 +44,18 @@ async def list_teams(db: AsyncSession = Depends(get_db)):
         latest_score = score_result.scalar_one_or_none()
 
         contracts_result = await db.execute(
-            select(func.count()).select_from(Contract).where(Contract.owner_team == team.name)
+            select(func.count()).select_from(Contract).where(Contract.team_id == team.id)
         )
         contracts_owned = contracts_result.scalar() or 0
+
+        slack_ch, email = slack_and_email_from_profile(team.default_alerting_profile)
 
         responses.append(
             TeamWithScoreResponse(
                 id=team.id,
                 name=team.name,
-                slack_channel=team.slack_channel,
-                email=team.email,
+                slack_channel=slack_ch,
+                email=email,
                 created_at=team.created_at,
                 current_score=latest_score.score if latest_score else None,
                 contracts_owned=contracts_owned,
@@ -61,7 +72,13 @@ async def get_team(team_id: str, db: AsyncSession = Depends(get_db)):
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid team ID")
 
-    result = await db.execute(select(Team).where(Team.id == uid))
+    result = await db.execute(
+        select(Team)
+        .where(Team.id == uid)
+        .options(
+            selectinload(Team.default_alerting_profile).selectinload(AlertingProfile.channels)
+        )
+    )
     team = result.scalar_one_or_none()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -73,11 +90,13 @@ async def get_team(team_id: str, db: AsyncSession = Depends(get_db)):
     )
     scores = scores_result.scalars().all()
 
+    slack_ch, email = slack_and_email_from_profile(team.default_alerting_profile)
+
     return TeamDetailResponse(
         id=team.id,
         name=team.name,
-        slack_channel=team.slack_channel,
-        email=team.email,
+        slack_channel=slack_ch,
+        email=email,
         created_at=team.created_at,
         scores=[ComplianceScoreResponse.model_validate(s) for s in scores],
     )
@@ -92,10 +111,8 @@ async def contract_sla(contract_id: str, db: AsyncSession = Depends(get_db)):
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
 
-    if contract.owner_team:
-        team_result = await db.execute(
-            select(Team).where(Team.name == contract.owner_team)
-        )
+    if contract.team_id:
+        team_result = await db.execute(select(Team).where(Team.id == contract.team_id))
         team = team_result.scalar_one_or_none()
         if team:
             scores_result = await db.execute(
@@ -130,7 +147,7 @@ async def leaderboard(db: AsyncSession = Depends(get_db)):
             continue
 
         contracts_result = await db.execute(
-            select(func.count()).select_from(Contract).where(Contract.owner_team == team.name)
+            select(func.count()).select_from(Contract).where(Contract.team_id == team.id)
         )
         contracts_owned = contracts_result.scalar() or 0
 

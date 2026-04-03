@@ -3,7 +3,7 @@
 > The enforcement and governance runtime for data contracts.
 
 Sraosha wraps [`datacontract-cli`](https://github.com/datacontract/datacontract-cli) to add
-what the CLI cannot do on its own: **block pipelines at runtime, detect drift before breach,
+what the CLI cannot do on its own: **enforce contracts from the CLI and API, detect drift before breach,
 map cross-contract impact, and track compliance over time.**
 
 [![CI](https://github.com/YOUR_ORG/sraosha/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_ORG/sraosha/actions/workflows/ci.yml)
@@ -28,8 +28,7 @@ map cross-contract impact, and track compliance over time.**
 |---|---|---|
 | Define contracts in YAML | Yes | Yes (uses it) |
 | Run quality tests on demand | Yes | Yes (uses it) |
-| Block Airflow pipelines on violation | No | Yes |
-| Block dbt runs on violation | No | Yes |
+| Enforce contracts (CLI / API / embedded engine) | Manual only | Yes |
 | Detect drift before threshold breach | No | Yes |
 | Cross-contract impact analysis | No | Yes |
 | Team compliance scoring | No | Yes |
@@ -41,12 +40,10 @@ map cross-contract impact, and track compliance over time.**
 pip install sraosha
 ```
 
-Or with optional integrations:
+Development dependencies (tests, lint, types):
 
 ```bash
-pip install sraosha[datacontract]     # Include datacontract-cli
-pip install sraosha[airflow]          # Include Airflow provider
-pip install sraosha[all]              # Everything
+pip install -e ".[dev]"
 ```
 
 ## Quickstart
@@ -54,21 +51,35 @@ pip install sraosha[all]              # Everything
 ### Using Docker Compose (recommended)
 
 ```bash
-# Start the full stack (API + dashboard + PostgreSQL + Redis)
+# Copy and edit the config file
+cp .sraosha.example .sraosha
+
+# Start the full stack (API + PostgreSQL + Redis)
 docker compose up -d
 
 # Open the dashboard
-open http://localhost:8000
+open http://localhost:8000/ui/
 ```
 
 ### Using pip
 
 ```bash
 # Install
-pip install sraosha[datacontract]
+pip install sraosha
+
+# Create a config file (or set env vars directly)
+cp .sraosha.example .sraosha
 
 # Start the API server (dashboard included)
 sraosha serve
+```
+
+You can also point to a custom config path:
+
+```bash
+sraosha --config /etc/sraosha/.sraosha serve
+# or
+SRAOSHA_CONFIG=/etc/sraosha/.sraosha sraosha serve
 ```
 
 ### Register and validate a contract
@@ -81,39 +92,34 @@ sraosha register --contract contracts/orders.yaml --team my-team
 sraosha run --contract contracts/orders.yaml --mode block
 ```
 
-### Add to your Airflow DAG
-
-```python
-from sraosha.hooks.airflow.operator import SraoshaOperator
-
-validate = SraoshaOperator(
-    task_id="validate_orders",
-    contract_path="contracts/orders.yaml",
-    enforcement_mode="block",
-    dag=dag,
-)
-load_orders >> validate >> transform_orders
-```
-
 ## How It Works
 
-Sraosha sits between your pipelines and your data.
-When a pipeline task runs, the SraoshaOperator calls the Core Engine,
-which validates the contract using datacontract-cli. If the contract fails
-and enforcement_mode is "block", the pipeline aborts. Results are persisted
-and visible in the dashboard.
+You run validation from the CLI (`sraosha run`), the API, or by embedding
+`ContractEngine` in your own jobs or services. The engine validates with
+`datacontract-cli`. If enforcement is `block` and checks fail, the process
+exits with an error (CLI) or raises (Python); results are persisted when a
+database is configured and visible in the dashboard.
 
 In the background, the DriftGuard scans your datasets on a schedule and
 raises warnings when metrics are trending toward a threshold -- before the
 contract actually breaches.
 
+The **Lineage** page (`/ui/impact`) visualizes contract dependencies: focus a
+contract with optional upstream/downstream hop limits, inspect edges for column
+mappings, and run impact analysis from the side panel. The API exposes
+`GET /api/v1/impact/graph` (full graph) and
+`GET /api/v1/impact/lineage/{contract_id}?upstream_depth=&downstream_depth=`
+(subgraph). Each node includes a **platform** string from the first
+`servers.*.type` entry in the contract YAML (DataHub-style cards use a colored
+accent per platform).
+
 ## Architecture
 
 ```
-Pipeline (Airflow / dbt / CLI / API)
+Orchestrator / job / CLI / API
     |
     v
-Sraosha Hook --> Core Engine --> datacontract-cli (validation)
+CLI or API --> Core Engine --> datacontract-cli (validation)
     |                 |
     |                 v
     |           DriftGuard (statistical trends via DuckDB)
@@ -122,17 +128,21 @@ Sraosha Hook --> Core Engine --> datacontract-cli (validation)
 PostgreSQL <--- Results persisted
     |
     v
-FastAPI (REST API + embedded React dashboard)
-    :8000/api/v1/*   -- API endpoints
-    :8000/*           -- Dashboard UI
+FastAPI (REST API + built-in web dashboard)
+    :8000/api/v1/*   -- JSON REST API
+    :8000/ui/*        -- Dashboard (Jinja2 templates)
+    :8000/docs        -- Swagger UI
 ```
 
-The dashboard is embedded in the FastAPI process -- a single `sraosha serve` command
-gives you both the API and the web UI on one port.
+The dashboard is built with Jinja2 templates and served directly by FastAPI --
+no build step, no Node.js. A single `sraosha serve` command gives you both the
+API and the web UI on one port.
 
 ## CLI Commands
 
 ```bash
+sraosha [--config PATH] <command>
+
 sraosha run --contract path/to/contract.yaml [--mode block|warn|log]
 sraosha status [--format table|json]
 sraosha history --contract <contract_id> [--limit 20]
@@ -143,6 +153,27 @@ sraosha serve [--host 0.0.0.0] [--port 8000] [--reload]
 sraosha db upgrade
 sraosha version
 ```
+
+**Compliance snapshots (Docker):** the stack runs a Celery worker with beat (`compliance-compute-daily`). To trigger a one-off write to `compliance_scores` without waiting for the schedule:
+
+```bash
+docker compose exec worker celery -A sraosha.tasks.celery_app call \
+  sraosha.tasks.compliance_compute.compute_compliance_scores
+```
+
+## Configuration
+
+Sraosha reads configuration from a `.sraosha` file (dotenv format).
+
+**Resolution order** (first match wins):
+
+1. `--config PATH` CLI flag
+2. `SRAOSHA_CONFIG` environment variable
+3. `.sraosha` in the current working directory
+4. `~/.sraosha` in your home directory
+5. Built-in defaults
+
+Environment variables always override file values. See `.sraosha.example` for all available settings.
 
 ## Development
 
@@ -164,11 +195,8 @@ pre-commit install
 # Start infrastructure
 docker compose up postgres redis -d
 
-# Run API locally
+# Run API locally (templates hot-reload with --reload)
 sraosha serve --reload
-
-# Run dashboard dev server (hot reload)
-cd dashboard && bun dev
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
@@ -181,7 +209,6 @@ make format           # Auto-format code
 make test             # Unit tests
 make test-cov         # Tests with coverage
 make typecheck        # mypy
-make build-dashboard  # Build dashboard static files
 make dev              # Docker Compose full stack
 make clean            # Remove caches and build artifacts
 ```

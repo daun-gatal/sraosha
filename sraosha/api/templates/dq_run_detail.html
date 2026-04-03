@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Sraosha — DQ run{% endblock %}
+
+{% block breadcrumbs %}
+<div class="flex min-w-0 flex-col gap-1">
+  <a href="/ui/data-quality/{{ check.id }}" class="text-xs text-indigo-600 hover:underline dark:text-indigo-400">{{ check.name }}</a>
+  <h1 class="truncate text-sm font-semibold text-gray-900 dark:text-white">Run {{ run.id }}</h1>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <div class="flex flex-wrap items-center gap-3">
+    {% if run.status == 'passed' %}
+    <span class="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">passed</span>
+    {% elif run.status == 'failed' %}
+    <span class="rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-800 dark:bg-rose-950 dark:text-rose-200">failed</span>
+    {% else %}
+    <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200">{{ run.status }}</span>
+    {% endif %}
+    <span class="text-sm text-gray-500 dark:text-gray-400">{{ run.run_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</span>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <dt class="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Checks</dt>
+      <dd class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ run.checks_passed }} / {{ run.checks_total }}</dd>
+    </div>
+    <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <dt class="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Warned / Failed</dt>
+      <dd class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ run.checks_warned }} / {{ run.checks_failed }}</dd>
+    </div>
+    <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <dt class="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Duration</dt>
+      <dd class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{% if run.duration_ms %}{{ run.duration_ms }}ms{% else %}—{% endif %}</dd>
+    </div>
+    <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <dt class="text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Triggered by</dt>
+      <dd class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ run.triggered_by }}</dd>
+    </div>
+  </div>
+
+  {% if run.run_log %}
+  <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+    <h2 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">Log</h2>
+    <pre class="max-h-96 overflow-auto rounded-lg bg-gray-50 p-3 text-xs text-gray-800 dark:bg-gray-950 dark:text-gray-200 whitespace-pre-wrap">{{ run.run_log }}</pre>
+  </div>
+  {% endif %}
+
+  {% if run.results_json %}
+  <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+    <h2 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">Results</h2>
+    <pre class="max-h-96 overflow-auto rounded-lg bg-gray-50 p-3 text-xs text-gray-800 dark:bg-gray-950 dark:text-gray-200">{{ run.results_json | tojson(indent=2) }}</pre>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

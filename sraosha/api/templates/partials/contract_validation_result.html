@@ -1,0 +1,25 @@
+{% if valid %}
+<div class="flex items-start gap-3">
+  <div class="flex-shrink-0 w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+    <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+  </div>
+  <div>
+    <p class="text-sm font-medium text-green-800">Contract is valid</p>
+    <p class="text-xs text-green-600 mt-0.5">All required fields are present and YAML structure is correct.</p>
+  </div>
+</div>
+{% else %}
+<div class="flex items-start gap-3">
+  <div class="flex-shrink-0 w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+    <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+  </div>
+  <div>
+    <p class="text-sm font-medium text-red-800">Validation errors</p>
+    <ul class="mt-1 space-y-0.5">
+      {% for err in errors %}
+      <li class="text-xs text-red-600">{{ err }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}

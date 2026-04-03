@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Sraosha — Schedules{% endblock %}
+
+{% block breadcrumbs %}
+<h1 class="truncate text-sm font-semibold text-gray-900 dark:text-white">Schedules</h1>
+<p class="truncate text-xs text-gray-500 dark:text-gray-400">Automated validation timing</p>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  {% set ft = filter_type | default('all') %}
+  <div class="flex flex-wrap gap-2">
+    <a href="/ui/schedules"
+       class="rounded-lg px-3 py-1.5 text-xs font-medium {% if ft == 'all' %}bg-indigo-100 text-indigo-900 dark:bg-indigo-950 dark:text-indigo-200{% else %}text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800{% endif %}">All</a>
+    <a href="/ui/schedules?type=contract"
+       class="rounded-lg px-3 py-1.5 text-xs font-medium {% if ft == 'contract' %}bg-indigo-100 text-indigo-900 dark:bg-indigo-950 dark:text-indigo-200{% else %}text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800{% endif %}">Contract</a>
+    <a href="/ui/schedules?type=data_quality"
+       class="rounded-lg px-3 py-1.5 text-xs font-medium {% if ft == 'data_quality' %}bg-indigo-100 text-indigo-900 dark:bg-indigo-950 dark:text-indigo-200{% else %}text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800{% endif %}">Data Quality</a>
+  </div>
+
+  <div class="card overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+    {% if schedules %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200 text-left text-sm dark:divide-gray-700">
+        <thead class="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-800/80 dark:text-gray-400">
+          <tr>
+            <th class="px-4 py-3">{% if ft == 'contract' %}Contract{% else %}Name{% endif %}</th>
+            <th class="px-4 py-3">Type</th>
+            <th class="px-4 py-3">Owner</th>
+            <th class="px-4 py-3">Interval</th>
+            <th class="px-4 py-3">Schedule</th>
+            <th class="px-4 py-3">Next run</th>
+            <th class="px-4 py-3">Last run</th>
+            <th class="px-4 py-3 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+          {% for s in schedules %}
+          <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+            <td class="px-4 py-3">
+              {% if s.schedule_type == 'contract' %}
+              <a href="/ui/contracts/{{ s.contract_id }}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-400">{{ s.contract_title }}</a>
+              <p class="font-mono text-xs text-gray-400">{{ s.contract_id }}</p>
+              {% else %}
+              <a href="/ui/data-quality/{{ s.dq_check_id }}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-400">{{ s.dq_check_name }}</a>
+              <p class="font-mono text-xs text-gray-400">{{ s.dq_check_id }}</p>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              {% if s.schedule_type == 'contract' %}
+              <span class="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200">Contract</span>
+              {% else %}
+              <span class="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">Data Quality</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{{ s.owner_team or "—" }}</td>
+            <td class="px-4 py-3 text-gray-700 dark:text-gray-200">
+              {{ s.interval_label }}
+              {% if s.cron_expression %}
+              <p class="mt-0.5 font-mono text-xs text-gray-400">{{ s.cron_expression }}</p>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              {% if s.is_enabled %}
+              <span class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                Active
+              </span>
+              {% else %}
+              <span class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                <span class="h-1.5 w-1.5 rounded-full bg-gray-400"></span>
+                Paused
+              </span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-gray-600 dark:text-gray-300">
+              {% if s.is_enabled %}
+              {{ s.next_run_at.strftime('%Y-%m-%d %H:%M') }} UTC
+              {% else %}
+              —
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-gray-600 dark:text-gray-300">
+              {% if s.last_run_at %}
+              <span class="block">{{ s.last_run_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>
+              {% endif %}
+              {% if s.last_run_status %}
+              {% if s.last_run_status == 'passed' %}
+              <span class="mt-0.5 inline-block text-xs text-emerald-600 dark:text-emerald-400">Latest run: passed</span>
+              {% elif s.last_run_status == 'failed' %}
+              <span class="mt-0.5 inline-block text-xs text-rose-600 dark:text-rose-400">Latest run: failed</span>
+              {% else %}
+              <span class="mt-0.5 inline-block text-xs text-amber-600 dark:text-amber-400">Latest run: {{ s.last_run_status }}</span>
+              {% endif %}
+              {% elif not s.last_run_at %}
+              <span class="text-gray-400">Never</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-right">
+              <div class="flex flex-wrap items-center justify-end gap-2">
+                {% if s.schedule_type == 'contract' %}
+                <button type="button"
+                        hx-post="/ui/schedules/{{ s.id }}/toggle"
+                        hx-swap="none"
+                        class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800">
+                  {% if s.is_enabled %}Pause{% else %}Enable{% endif %}
+                </button>
+                <a href="/ui/contracts/{{ s.contract_id }}" class="text-xs font-medium text-indigo-600 dark:text-indigo-400">Open</a>
+                {% else %}
+                <a href="/ui/data-quality/{{ s.dq_check_id }}" class="text-xs font-medium text-indigo-600 dark:text-indigo-400">Open</a>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="px-6 py-14 text-center">
+      <svg class="mx-auto h-10 w-10 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+      <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">No schedules configured.</p>
+      <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">Open a contract or data quality check and add a schedule.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -22,6 +22,7 @@ class ValidationRunResponse(BaseModel):
     triggered_by: str | None
     duration_ms: int | None
     error_message: str | None
+    run_log: str | None = None
     run_at: datetime
 
     model_config = {"from_attributes": True}

@@ -13,8 +13,3 @@ def sample_contract_path() -> Path:
 @pytest.fixture
 def broken_contract_path() -> Path:
     return FIXTURES_DIR / "sample_contract_broken.yaml"
-
-
-@pytest.fixture
-def drift_contract_path() -> Path:
-    return FIXTURES_DIR / "sample_contract_drift.yaml"

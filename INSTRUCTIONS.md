@@ -15,7 +15,7 @@
 7. [Project Structure](#7-project-structure)
 8. [Module Specifications](#8-module-specifications)
    - [8.1 Core Engine](#81-core-engine)
-   - [8.2 Pipeline Hooks](#82-pipeline-hooks)
+   - [8.2 Integration surface](#82-integration-surface)
    - [8.3 Drift Guard](#83-drift-guard)
    - [8.4 Impact Map](#84-impact-map)
    - [8.5 Compliance Dashboard (API)](#85-compliance-dashboard-api)
@@ -43,7 +43,7 @@
 
 Sraosha is **not** a replacement for `datacontract-cli`. It is a governance runtime that wraps `datacontract-cli` as its validation engine and adds what the CLI cannot do on its own:
 
-- Blocking pipelines at runtime when contracts are violated
+- Enforcing contracts from the CLI, API, or embedded engine when contracts are violated
 - Detecting statistical drift *before* a threshold is breached
 - Mapping cross-contract impact when a schema change is proposed
 - Tracking compliance history over time with team-level scoring
@@ -95,7 +95,8 @@ Those are quality frameworks. Sraosha is a **governance platform** — it enforc
 │                    Existing Data Stack                          │
 │   Airflow / Prefect    dbt    Kafka    Spark    GitHub Actions  │
 └───────┬──────────────────┬──────────────────────────────────────┘
-        │ hooks/operators  │ hooks
+        │  CLI / API /     │  embed
+        │  your jobs       │  ContractEngine
         ▼                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                  Sraosha Runtime                           │
@@ -120,16 +121,15 @@ Those are quality frameworks. Sraosha is a **governance platform** — it enforc
 ### Data Flow
 
 ```
-1. Pipeline starts (Airflow DAG, dbt run, etc.)
-2. Sraosha hook is triggered (pre-execution)
-3. Core Engine loads contract for the target dataset
-4. datacontract-cli validates schema + quality rules
-5. DriftGuard checks statistical trend for the dataset
-6. If enforcement_mode = "block" and any check fails → pipeline aborts
-7. If enforcement_mode = "warn" → pipeline continues, alert sent
-8. Results are persisted to PostgreSQL (run history)
-9. Compliance Tracker updates SLA score for the data producer
-10. Dashboard reflects new state in real time
+1. A job or user triggers validation (CLI, API, Celery, or embedded engine)
+2. Core Engine loads contract for the target dataset
+3. datacontract-cli validates schema + quality rules
+4. DriftGuard checks statistical trend for the dataset (when enabled)
+5. If enforcement_mode = "block" and any check fails → run fails (non-zero exit or error response)
+6. If enforcement_mode = "warn" → run continues, alert may be sent
+7. Results are persisted to PostgreSQL (run history)
+8. Compliance Tracker updates SLA score for the data producer
+9. Dashboard reflects new state in real time
 ```
 
 ---
@@ -149,8 +149,6 @@ Those are quality frameworks. Sraosha is a **governance platform** — it enforc
 | Frontend | React + TypeScript | latest | Bun (runtime, package manager, bundler) |
 | UI components | shadcn/ui + Tailwind | latest | Consistent design |
 | Charts | Recharts | latest | Compliance trend charts |
-| Airflow integration | Apache Airflow | 2.7+ | Custom provider package |
-| dbt integration | dbt-core | 1.7+ | Hooks via on-run-end |
 | CLI | Typer | latest | `sraosha` command |
 | Containerization | Docker + Compose | latest | Full stack deployment |
 | Testing | pytest + pytest-asyncio | latest | All unit and integration tests |
@@ -177,17 +175,13 @@ Build in this order:
 9. Unit tests for Phase 1
 10. Verify: `python -m sraosha.core.runner --contract path/to/contract.yaml` runs successfully
 
-### Phase 2 — Pipeline Hooks
-**Goal:** Airflow operator and dbt hook that call the Core Engine and enforce contracts.
+### Phase 2 — Integration surface (CLI / API / engine)
+**Goal:** Enforce contracts without shipping orchestrator-specific plugins. Call the Core Engine from the CLI, HTTP API, scheduled tasks, or embedded Python.
 
 Build in this order:
-1. `sraosha/hooks/base.py` — abstract `BasePipelineHook`
-2. `sraosha/hooks/airflow/operator.py` — `SraoshaOperator`
-3. `sraosha/hooks/airflow/provider.py` — Airflow provider descriptor
-4. `sraosha/hooks/dbt/macro.py` — dbt on-run-end hook macro
-5. `sraosha/hooks/dbt/hook.py` — Python dbt hook runner
-6. Integration tests with a mock Airflow DAG
-7. Verify: A sample Airflow DAG with `SraoshaOperator` blocks when contract fails
+1. Wire `sraosha run` and API validation endpoints to `ContractEngine` with persistence and enforcement modes.
+2. Provide a minimal Python example (`examples/standalone_example.py`) that runs the engine.
+3. Verify: `sraosha run --contract ... --mode block` exits non-zero when validation fails.
 
 ### Phase 3 — Drift Guard
 **Goal:** A module that computes statistical metrics per table over time and raises pre-breach warnings.
@@ -298,19 +292,6 @@ sraosha/
 │   │   ├── graph.py                 # Build NetworkX dependency graph
 │   │   └── analyzer.py              # Impact analysis for proposed changes
 │   │
-│   ├── hooks/                       # Pipeline integration hooks
-│   │   ├── __init__.py
-│   │   ├── base.py                  # Abstract BasePipelineHook
-│   │   ├── airflow/
-│   │   │   ├── __init__.py
-│   │   │   ├── operator.py          # SraoshaOperator
-│   │   │   └── provider.py          # Airflow provider descriptor
-│   │   └── dbt/
-│   │       ├── __init__.py
-│   │       ├── hook.py              # Python dbt hook runner
-│   │       └── macros/
-│   │           └── sraosha_check.sql  # dbt macro for on-run-end
-│   │
 │   ├── alerting/                    # Alerting module
 │   │   ├── __init__.py
 │   │   ├── base.py                  # Abstract BaseAlerter
@@ -376,16 +357,12 @@ sraosha/
 │   │   ├── test_impact.py
 │   │   └── test_alerting.py
 │   ├── integration/
-│   │   ├── test_api.py
-│   │   ├── test_airflow_operator.py
-│   │   └── test_dbt_hook.py
+│   │   └── test_api.py
 │   └── fixtures/
 │       ├── sample_contract.yaml
 │       └── sample_contract_broken.yaml
 │
 ├── examples/                        # Usage examples
-│   ├── airflow_dag_example.py
-│   ├── dbt_project_example/
 │   └── standalone_example.py
 │
 ├── docker-compose.yml
@@ -556,138 +533,15 @@ class ContractRunner:
 
 ---
 
-### 8.2 Pipeline Hooks
+### 8.2 Integration surface
 
-**File:** `sraosha/hooks/base.py`
+Sraosha does **not** ship Airflow operators, dbt macros, or a `sraosha.hooks` package. Integrate by:
 
-```python
-# sraosha/hooks/base.py
+- **CLI:** `sraosha run --contract <path> [--mode block|warn|log]`
+- **API:** HTTP endpoints that run validation and persist runs (see Section 12)
+- **Python:** instantiate `ContractEngine` from `sraosha.core.engine` (see `examples/standalone_example.py`)
 
-from abc import ABC, abstractmethod
-from sraosha.core.engine import ContractEngine, EnforcementMode, ValidationResult
-
-class BasePipelineHook(ABC):
-    """
-    Abstract base for all pipeline integration hooks.
-    Subclass this for Airflow, dbt, Prefect, etc.
-    """
-
-    def __init__(
-        self,
-        contract_path: str,
-        enforcement_mode: EnforcementMode = EnforcementMode.BLOCK,
-        server: str | None = None,
-    ):
-        self.contract_path = contract_path
-        self.enforcement_mode = enforcement_mode
-        self.server = server
-
-    def execute(self) -> ValidationResult:
-        """Run the engine and return the result. Raises on BLOCK mode failure."""
-        engine = ContractEngine(
-            contract_path=self.contract_path,
-            enforcement_mode=self.enforcement_mode,
-            server=self.server,
-        )
-        return engine.run()
-
-    @abstractmethod
-    def on_success(self, result: ValidationResult) -> None:
-        """Called after a passing validation."""
-        ...
-
-    @abstractmethod
-    def on_failure(self, result: ValidationResult) -> None:
-        """Called after a failing validation (before raising)."""
-        ...
-```
-
----
-
-**File:** `sraosha/hooks/airflow/operator.py`
-
-```python
-# sraosha/hooks/airflow/operator.py
-
-from airflow.models import BaseOperator
-from airflow.utils.decorators import apply_defaults
-from sraosha.core.engine import ContractEngine, EnforcementMode
-
-class SraoshaOperator(BaseOperator):
-    """
-    Airflow operator that validates a data contract before or after a task.
-
-    Usage in DAG:
-        validate_orders = SraoshaOperator(
-            task_id="validate_orders_contract",
-            contract_path="contracts/orders.yaml",
-            enforcement_mode="block",
-            server="production",
-            dag=dag,
-        )
-        load_orders >> validate_orders >> transform_orders
-
-    Parameters:
-        contract_path (str): Path or URL to the datacontract.yaml file.
-        enforcement_mode (str): "block" | "warn" | "log". Default: "block".
-        server (str): Which server block to test against. Default: None (all).
-        sraosha_api_url (str): Optional Sraosha API URL to push results.
-    """
-
-    template_fields = ("contract_path", "server")
-    ui_color = "#6366f1"
-
-    @apply_defaults
-    def __init__(
-        self,
-        contract_path: str,
-        enforcement_mode: str = "block",
-        server: str | None = None,
-        sraosha_api_url: str | None = None,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.contract_path = contract_path
-        self.enforcement_mode = EnforcementMode(enforcement_mode)
-        self.server = server
-        self.sraosha_api_url = sraosha_api_url
-
-    def execute(self, context: dict):
-        """
-        Called by Airflow when the task runs.
-        Runs contract validation and handles enforcement.
-        Pushes results to Sraosha API if sraosha_api_url is set.
-        """
-        ...
-```
-
----
-
-**File:** `sraosha/hooks/dbt/hook.py`
-
-```python
-# sraosha/hooks/dbt/hook.py
-# Called via dbt's on-run-end hook in dbt_project.yml:
-#   on-run-end:
-#     - "{{ sraosha_check(contract_path='contracts/orders.yaml') }}"
-# Or directly as a Python runner:
-#   python -m sraosha.hooks.dbt.hook --contract contracts/orders.yaml
-
-class DbtHook:
-    """
-    Runs Sraosha validation as part of a dbt run lifecycle.
-    Can be invoked:
-      1. From a dbt macro (compiles to a shell call)
-      2. Directly from Python after dbt run completes
-    """
-
-    def __init__(self, contract_path: str, enforcement_mode: str = "block"):
-        ...
-
-    def run(self) -> None:
-        """Execute validation. Exits with code 1 if BLOCK mode and failed."""
-        ...
-```
+Orchestrators (Airflow, dbt, Prefect, CI) should call one of the above from a task, script, or container.
 
 ---
 
@@ -1432,9 +1286,7 @@ Use a real PostgreSQL instance (Docker). Use `httpx.AsyncClient` for API tests.
 
 ```
 tests/integration/
-├── test_api.py             # All API endpoints with real DB
-├── test_airflow_operator.py # SraoshaOperator in a mock DAG
-└── test_dbt_hook.py        # dbt hook execution
+└── test_api.py             # All API endpoints with real DB
 ```
 
 ### Test Fixtures
@@ -1595,14 +1447,12 @@ pyyaml = ">=6.0"
 gitpython = ">=3.1.0"
 
 [project.optional-dependencies]
-airflow = ["apache-airflow>=2.7.0"]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
     "ruff>=0.4",
 ]
-all = ["sraosha[airflow,dev]"]
 ```
 
 ---
@@ -1617,7 +1467,7 @@ The README is the most important file for open-source adoption. Use this as the 
 > The enforcement and governance runtime for data contracts.
 
 Sraosha wraps [`datacontract-cli`](https://github.com/datacontract/datacontract-cli) to add
-what the CLI cannot do on its own: **block pipelines at runtime, detect drift before breach,
+what the CLI cannot do on its own: **enforce contracts from the CLI and API, detect drift before breach,
 map cross-contract impact, and track compliance over time.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -1629,8 +1479,7 @@ map cross-contract impact, and track compliance over time.**
 |---|---|---|
 | Define contracts in YAML | ✅ | ✅ (uses it) |
 | Run quality tests on demand | ✅ | ✅ (uses it) |
-| Block Airflow pipelines on violation | ❌ | ✅ |
-| Block dbt runs on violation | ❌ | ✅ |
+| Enforce contracts (CLI / API / embedded engine) | ❌ | ✅ |
 | Detect drift before threshold breach | ❌ | ✅ |
 | Cross-contract impact analysis | ❌ | ✅ |
 | Team compliance scoring | ❌ | ✅ |
@@ -1644,27 +1493,18 @@ docker compose up -d
 ### 2. Register your first contract
 sraosha register --contract contracts/orders.yaml --team my-team
 
-### 3. Add to your Airflow DAG
-from sraosha.hooks.airflow.operator import SraoshaOperator
-
-validate = SraoshaOperator(
-    task_id="validate_orders",
-    contract_path="contracts/orders.yaml",
-    enforcement_mode="block",
-    dag=dag,
-)
-load_orders >> validate >> transform_orders
+### 3. Run validation from the CLI
+sraosha run --contract contracts/orders.yaml --mode block
 
 ### 4. Check the dashboard
 open http://localhost:5173
 
 ## How it works
 
-Sraosha sits between your pipelines and your data.
-When a pipeline task runs, the SraoshaOperator calls the Core Engine,
-which validates the contract using datacontract-cli. If the contract fails
-and enforcement_mode is "block", the pipeline aborts. Results are persisted
-and visible in the dashboard.
+Validation runs through the Core Engine (`datacontract-cli`). Use the CLI,
+API, or embed `ContractEngine` in your own jobs. With `block` enforcement,
+failed checks surface as errors; results are persisted and visible in the
+dashboard when configured.
 
 In the background, the DriftGuard scans your datasets on a schedule and
 raises warnings when metrics are trending toward a threshold — before the
@@ -1690,7 +1530,7 @@ MIT — use it, contribute to it, build on it.
 
 6. **Test before moving to next phase.** Each phase must have passing unit tests before the next phase begins.
 
-7. **Follow the build order in Section 6.** The phases have dependencies — Phase 2 requires Phase 1, Phase 4 requires Phase 1 and 2, etc.
+7. **Follow the build order in Section 6.** The phases have dependencies — each phase builds on the previous (e.g. API work assumes the Core Engine from Phase 1).
 
 8. **The `datacontract-cli` SDK is the engine.** Import and use `from datacontract.data_contract import DataContract`. Do not re-implement its validation logic.
 ```

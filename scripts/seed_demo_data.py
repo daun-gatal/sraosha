@@ -60,11 +60,11 @@ models:
         required: true
 """,
     },
-    # ── Source: Products (root node) ──
+    # ── Source: Products (root node) — Snowflake ──
     {
         "contract_id": "products-v1",
         "title": "Product Catalog",
-        "description": "Product catalog from merchandising system",
+        "description": "Product catalog from merchandising system (Snowflake)",
         "owner_team": "team-platform",
         "enforcement_mode": "block",
         "raw_yaml": """\
@@ -73,15 +73,16 @@ id: products-v1
 info:
   title: Product Catalog
   version: 1.0.0
-  description: Product catalog from merchandising system
+  description: Product catalog from merchandising system (Snowflake)
   owner: team-platform
 servers:
   production:
-    type: postgres
-    host: catalog-db.company.com
-    port: 5432
-    database: catalog
-    schema: public
+    type: snowflake
+    account: xy12345.us-east-1
+    warehouse: ANALYTICS_WH
+    database: CATALOG
+    schema: PUBLIC
+    role: DATA_READER
 models:
   products:
     type: table
@@ -243,11 +244,11 @@ models:
         type: timestamp
 """,
     },
-    # ── Clickstream: downstream of customers ──
+    # ── Clickstream: downstream of customers — BigQuery ──
     {
         "contract_id": "clickstream-v1",
         "title": "Clickstream Events",
-        "description": "User clickstream from web analytics pipeline",
+        "description": "User clickstream from web analytics pipeline (BigQuery)",
         "owner_team": "team-analytics",
         "enforcement_mode": "warn",
         "raw_yaml": """\
@@ -256,21 +257,14 @@ id: clickstream-v1
 info:
   title: Clickstream Events
   version: 1.0.0
-  description: User clickstream from web analytics pipeline
+  description: User clickstream from web analytics pipeline (BigQuery)
   owner: team-analytics
 servers:
-  upstream_customers:
-    type: postgres
-    host: crm-db.company.com
-    port: 5432
-    database: crm
-    schema: customers
-  upstream_products:
-    type: postgres
-    host: catalog-db.company.com
-    port: 5432
-    database: catalog
-    schema: products
+  production:
+    type: bigquery
+    project: company-analytics-prod
+    dataset: clickstream
+    location: us-east1
 models:
   events:
     type: table
@@ -399,11 +393,11 @@ models:
         type: timestamp
 """,
     },
-    # ── Analytics: downstream of clickstream + orders (aggregation layer) ──
+    # ── Analytics: downstream of clickstream + orders — Databricks ──
     {
         "contract_id": "analytics-v1",
         "title": "Customer Analytics",
-        "description": "Aggregated customer behavior and purchase analytics",
+        "description": "Aggregated customer behavior and purchase analytics (Databricks)",
         "owner_team": "team-analytics",
         "enforcement_mode": "log",
         "raw_yaml": """\
@@ -412,27 +406,16 @@ id: analytics-v1
 info:
   title: Customer Analytics
   version: 1.0.0
-  description: Aggregated customer behavior and purchase analytics
+  description: Aggregated customer behavior and purchase analytics (Databricks)
   owner: team-analytics
 servers:
-  upstream_events:
-    type: postgres
-    host: analytics-db.company.com
-    port: 5432
-    database: analytics
-    schema: events
-  upstream_orders:
-    type: postgres
-    host: db.company.com
-    port: 5432
-    database: warehouse
-    schema: orders
-  upstream_customers:
-    type: postgres
-    host: crm-db.company.com
-    port: 5432
-    database: crm
-    schema: customers
+  production:
+    type: databricks
+    host: adb-123456789.azuredatabricks.net
+    port: 443
+    catalog: analytics_catalog
+    schema: gold
+    httpPath: /sql/1.0/warehouses/abc123def
 models:
   customer_analytics:
     type: table
@@ -455,8 +438,6 @@ models:
     },
 ]
 
-TEAM_NAMES = ["team-checkout", "team-platform", "team-billing", "team-logistics", "team-analytics"]
-
 RUN_PROFILES = {
     "customers-v2": {"pass_rate": 0.92, "num_runs": 35, "checks": 10},
     "products-v1": {"pass_rate": 0.95, "num_runs": 28, "checks": 8},
@@ -469,25 +450,6 @@ RUN_PROFILES = {
     "analytics-v1": {"pass_rate": 0.78, "num_runs": 24, "checks": 8},
 }
 
-DRIFT_SPECS = [
-    ("customers-v2", "null_rate", "customers", "email", 0.01, 0.03),
-    ("customers-v2", "freshness_hours", "customers", None, 12.0, 24.0),
-    ("customers-v2", "row_count_delta", "customers", None, 0.10, 0.30),
-    ("products-v1", "null_rate", "products", "category", 0.005, 0.02),
-    ("orders-v1", "null_rate", "orders", "customer_id", 0.02, 0.05),
-    ("orders-v1", "row_count_delta", "orders", None, 0.20, 0.50),
-    ("orders-v1", "null_rate", "orders", "product_id", 0.01, 0.04),
-    ("payments-v1", "null_rate", "payments", "payment_method", 0.005, 0.02),
-    ("payments-v1", "row_count_delta", "payments", None, 0.15, 0.40),
-    ("shipping-v1", "null_rate", "shipments", "delivered_at", 0.10, 0.25),
-    ("shipping-v1", "freshness_hours", "shipments", None, 6.0, 12.0),
-    ("clickstream-v1", "null_rate", "events", "page_url", 0.05, 0.10),
-    ("clickstream-v1", "row_count_delta", "events", None, 0.30, 0.60),
-    ("returns-v1", "null_rate", "returns", "reason", 0.08, 0.15),
-    ("fulfillment-v1", "freshness_hours", "fulfillment", None, 4.0, 8.0),
-    ("analytics-v1", "row_count_delta", "customer_analytics", None, 0.15, 0.35),
-]
-
 CHECK_TYPES = ["field_is_present", "field_type", "field_required", "field_unique", "general"]
 
 
@@ -495,9 +457,31 @@ def now_minus(days=0, hours=0, minutes=0):
     return datetime.now(timezone.utc) - timedelta(days=days, hours=hours, minutes=minutes)
 
 
+def _ensure_team_id(api_url: str, cache: dict[str, str], name: str) -> str | None:
+    if name in cache:
+        return cache[name]
+    r = httpx.post(f"{api_url}/api/v1/teams", json={"name": name}, timeout=10.0)
+    if r.status_code == 201:
+        tid = r.json()["id"]
+        cache[name] = tid
+        return tid
+    if r.status_code == 409:
+        lr = httpx.get(f"{api_url}/api/v1/teams", timeout=10.0)
+        if lr.status_code != 200:
+            return None
+        for row in lr.json():
+            if row.get("name") == name:
+                tid = row["id"]
+                cache[name] = tid
+                return tid
+    return None
+
+
 def seed_contracts(api_url: str):
     print("Seeding contracts...")
+    team_cache: dict[str, str] = {}
     for c in CONTRACTS:
+        tid = _ensure_team_id(api_url, team_cache, c["owner_team"])
         resp = httpx.post(
             f"{api_url}/api/v1/contracts",
             json={
@@ -505,7 +489,8 @@ def seed_contracts(api_url: str):
                 "title": c["title"],
                 "description": c["description"],
                 "file_path": f"contracts/{c['contract_id']}.yaml",
-                "owner_team": c["owner_team"],
+                "team_id": tid,
+                "alerting_profile_id": None,
                 "raw_yaml": c["raw_yaml"],
                 "enforcement_mode": c["enforcement_mode"],
             },
@@ -568,12 +553,14 @@ def seed_runs(conn):
                 error_message = None
                 duration_ms = random.randint(100, 2000)
 
+            run_log = _generate_run_log(contract_id, status, checks_total, checks_passed, checks_failed, failures, duration_ms)
+
             cur.execute(
                 """INSERT INTO validation_runs
                    (id, contract_id, status, enforcement_mode,
                     checks_total, checks_passed, checks_failed,
-                    failures, server, triggered_by, duration_ms, error_message, run_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    failures, server, triggered_by, duration_ms, error_message, run_log, run_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT DO NOTHING""",
                 (
                     run_id, contract_id, status,
@@ -582,103 +569,22 @@ def seed_runs(conn):
                     psycopg2.extras.Json(failures) if failures else None,
                     None,
                     random.choice(["api", "scheduler", "ci"]),
-                    duration_ms, error_message, run_at,
+                    duration_ms, error_message, run_log, run_at,
                 ),
             )
     conn.commit()
     print(f"  + {sum(p['num_runs'] for p in RUN_PROFILES.values())} runs")
 
 
-def seed_drift(conn):
-    print("Seeding drift metrics and baselines...")
-    cur = conn.cursor()
-    for contract_id, metric_type, table_name, column_name, warn_t, breach_t in DRIFT_SPECS:
-        for day in range(14):
-            metric_id = str(uuid.uuid4())
-            measured_at = now_minus(days=14 - day, hours=random.randint(0, 6))
-            if "null_rate" in metric_type:
-                base = warn_t * 0.3
-                drift_factor = 1 + (day / 14) * 1.8
-                value = round(base * drift_factor + random.uniform(-0.003, 0.003), 4)
-            elif "row_count" in metric_type:
-                base = warn_t * 0.4
-                drift_factor = 1 + (day / 14) * 1.5
-                value = round(base * drift_factor + random.uniform(-0.02, 0.02), 4)
-            else:
-                base = warn_t * 0.5
-                drift_factor = 1 + (day / 14) * 1.2
-                value = round(base * drift_factor + random.uniform(-0.5, 0.5), 2)
-
-            is_warning = value >= warn_t and value < breach_t
-            is_breached = value >= breach_t
-
-            cur.execute(
-                """INSERT INTO drift_metrics
-                   (id, contract_id, run_id, metric_type, table_name, column_name,
-                    value, warning_threshold, breach_threshold, is_warning, is_breached, measured_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                   ON CONFLICT DO NOTHING""",
-                (
-                    metric_id, contract_id, None, metric_type, table_name, column_name,
-                    value, warn_t, breach_t, is_warning, is_breached, measured_at,
-                ),
-            )
-
-        values = []
-        for d in range(14):
-            if "null_rate" in metric_type:
-                values.append(warn_t * 0.3 * (1 + d / 14 * 1.8))
-            elif "row_count" in metric_type:
-                values.append(warn_t * 0.4 * (1 + d / 14 * 1.5))
-            else:
-                values.append(warn_t * 0.5 * (1 + d / 14 * 1.2))
-
-        mean_val = sum(values) / len(values)
-        std_val = (sum((v - mean_val) ** 2 for v in values) / len(values)) ** 0.5
-        slope = (values[-1] - values[0]) / len(values)
-        trending = slope > 0 and values[-1] > warn_t * 0.6
-        est_breach = max(1, int((breach_t - values[-1]) / max(slope, 0.0001))) if trending else None
-
-        cur.execute(
-            """INSERT INTO drift_baselines
-               (id, contract_id, metric_type, table_name, column_name,
-                mean, std_dev, trend_slope, is_trending_to_breach,
-                estimated_breach_in_runs, window_size, computed_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-               ON CONFLICT (contract_id, metric_type, table_name, column_name)
-               DO UPDATE SET mean=EXCLUDED.mean, std_dev=EXCLUDED.std_dev,
-                  trend_slope=EXCLUDED.trend_slope,
-                  is_trending_to_breach=EXCLUDED.is_trending_to_breach,
-                  estimated_breach_in_runs=EXCLUDED.estimated_breach_in_runs,
-                  computed_at=EXCLUDED.computed_at""",
-            (
-                str(uuid.uuid4()), contract_id, metric_type, table_name, column_name,
-                round(mean_val, 6), round(std_val, 6), round(slope, 6), trending,
-                est_breach, 14, now_minus(hours=1),
-            ),
-        )
-
-    conn.commit()
-    print(f"  + {len(DRIFT_SPECS) * 14} drift metrics, {len(DRIFT_SPECS)} baselines")
-
-
 def seed_teams_and_compliance(conn):
     print("Seeding teams and compliance scores...")
     cur = conn.cursor()
-    team_ids = {}
-
-    for name in TEAM_NAMES:
-        tid = str(uuid.uuid4())
-        team_ids[name] = tid
-        cur.execute(
-            """INSERT INTO teams (id, name, slack_channel, email, created_at)
-               VALUES (%s, %s, %s, %s, %s)
-               ON CONFLICT (name) DO UPDATE SET id=teams.id RETURNING id""",
-            (tid, name, f"#dc-{name.replace('team-', '')}", f"{name}@company.com", now_minus(days=90)),
-        )
-        row = cur.fetchone()
-        if row:
-            team_ids[name] = str(row[0])
+    cur.execute("SELECT id, name FROM teams ORDER BY name")
+    team_ids = {row[1]: str(row[0]) for row in cur.fetchall()}
+    if not team_ids:
+        print("  (no teams in database; create teams via API or seed contracts first)")
+        conn.commit()
+        return
 
     contracts_per_team = {}
     for c in CONTRACTS:
@@ -710,7 +616,125 @@ def seed_teams_and_compliance(conn):
             )
 
     conn.commit()
-    print(f"  + {len(TEAM_NAMES)} teams, {len(TEAM_NAMES) * 6} compliance periods")
+    print(f"  + {len(team_ids)} teams, {len(team_ids) * 6} compliance periods")
+
+
+def _generate_run_log(contract_id, status, checks_total, checks_passed, checks_failed, failures, duration_ms):
+    """Generate a realistic-looking validation log."""
+    lines = []
+    lines.append(f"Starting data contract validation for {contract_id}")
+    lines.append(f"Loading contract from file...")
+    lines.append(f"Contract loaded successfully")
+    lines.append("")
+
+    if status == "error":
+        lines.append("ERROR: Connection timeout to source database")
+        lines.append("Validation aborted due to connection error")
+        return "\n".join(lines)
+
+    lines.append("Starting soda scan...")
+    lines.append(f"Running {checks_total} checks against source database")
+    lines.append("")
+
+    if failures:
+        for f in failures:
+            check_name = f.get("check", "unknown_check")
+            field = f.get("field", "unknown")
+            msg = f.get("message", "Check failed")
+            lines.append(f"  FAILED  {contract_id}__{field}__{check_name}: {msg}")
+    for i in range(checks_passed):
+        lines.append(f"  PASSED  {contract_id}__field_{i}__check_{i}")
+
+    lines.append("")
+    lines.append(f"Scan summary:")
+    lines.append(f"  {checks_passed}/{checks_total} checks PASSED")
+    if checks_failed > 0:
+        lines.append(f"  {checks_failed}/{checks_total} checks FAILED")
+    if status == "passed":
+        lines.append("All is good. No failures. No warnings. No errors.")
+    else:
+        lines.append(f"Oops! {checks_failed} failure(s) detected.")
+    lines.append(f"Finished soda scan in {duration_ms or 0}ms")
+    return "\n".join(lines)
+
+
+SAMPLE_CONNECTIONS = [
+    {
+        "name": "production",
+        "server_type": "postgres",
+        "description": "Production PostgreSQL database",
+        "host": "postgres",
+        "port": 5432,
+        "database": "sraosha",
+        "schema_name": "public",
+        "username": "sraosha",
+        "password": "sraosha",
+    },
+    {
+        "name": "staging-snowflake",
+        "server_type": "snowflake",
+        "description": "Staging Snowflake data warehouse",
+        "account": "xy12345.us-east-1",
+        "warehouse": "COMPUTE_WH",
+        "database": "STAGING_DB",
+        "schema_name": "PUBLIC",
+        "role": "SYSADMIN",
+        "username": "staging_user",
+        "password": "staging_pass",
+    },
+    {
+        "name": "analytics-bigquery",
+        "server_type": "bigquery",
+        "description": "Google BigQuery analytics project",
+        "project": "my-analytics-project",
+        "dataset": "analytics",
+        "location": "us-east1",
+    },
+]
+
+
+def seed_connections(conn):
+    print("Seeding connections...")
+    cur = conn.cursor()
+
+    from cryptography.fernet import Fernet
+    import base64, hashlib
+
+    raw_key = "sraosha-dev-key-not-for-production"
+    digest = hashlib.sha256(raw_key.encode()).digest()
+    key = base64.urlsafe_b64encode(digest[:32])
+    f = Fernet(key)
+
+    count = 0
+    for c in SAMPLE_CONNECTIONS:
+        cur.execute("SELECT 1 FROM connections WHERE name = %s", (c["name"],))
+        if cur.fetchone():
+            print(f"  ~ {c['name']} (already exists)")
+            continue
+
+        pw_enc = f.encrypt(c["password"].encode()).decode() if c.get("password") else None
+        tok_enc = f.encrypt(c["token"].encode()).decode() if c.get("token") else None
+        sa_enc = f.encrypt(c["service_account_json"].encode()).decode() if c.get("service_account_json") else None
+
+        cur.execute(
+            """INSERT INTO connections
+               (id, name, server_type, description, host, port, database, schema_name,
+                account, warehouse, role, catalog, http_path, project, dataset, location, path,
+                username, password_encrypted, token_encrypted, service_account_json_encrypted)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                str(uuid.uuid4()), c["name"], c["server_type"], c.get("description"),
+                c.get("host"), c.get("port"), c.get("database"), c.get("schema_name"),
+                c.get("account"), c.get("warehouse"), c.get("role"), c.get("catalog"),
+                c.get("http_path"), c.get("project"), c.get("dataset"), c.get("location"),
+                c.get("path"), c.get("username"), pw_enc, tok_enc, sa_enc,
+            ),
+        )
+        count += 1
+        print(f"  + {c['name']}")
+
+    conn.commit()
+    print(f"  + {count} connections seeded")
 
 
 def main():
@@ -728,8 +752,8 @@ def main():
 
     conn = psycopg2.connect(args.db_dsn)
     try:
+        seed_connections(conn)
         seed_runs(conn)
-        seed_drift(conn)
         seed_teams_and_compliance(conn)
     finally:
         conn.close()

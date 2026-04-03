@@ -7,7 +7,8 @@ class ContractDependencyGraph:
     """
     Builds a directed graph of cross-contract dependencies.
     Nodes: contracts (keyed by contract_id)
-    Edges: A -> B if B references tables/fields that A defines
+    Edges: A -> B if B references tables/fields that A defines,
+           or if B explicitly declares depends_on A with table.column mapping.
     """
 
     def __init__(self):
@@ -21,6 +22,8 @@ class ContractDependencyGraph:
             parsed.contract_id,
             owner_team=parsed.owner_team,
             tables=list(parsed.tables.keys()),
+            platform=parsed.platform,
+            platforms=list(parsed.platforms),
         )
 
     def build_edges(self) -> None:
@@ -49,6 +52,8 @@ class ContractDependencyGraph:
                                 producer,
                                 cf.contract_id,
                                 shared_fields=list(shared),
+                                field_mapping={},
+                                edge_type="inferred",
                             )
 
             for table_name in cf.tables:
@@ -67,7 +72,38 @@ class ContractDependencyGraph:
                                 producer,
                                 cf.contract_id,
                                 shared_fields=list(shared),
+                                field_mapping={},
+                                edge_type="inferred",
                             )
+
+        # Explicit depends_on declarations with table.column mapping
+        for cf in contracts:
+            for dep in cf.depends_on:
+                upstream_id = dep.contract_id
+                if upstream_id not in self.graph or upstream_id == cf.contract_id:
+                    continue
+
+                if self.graph.has_edge(upstream_id, cf.contract_id):
+                    edge = self.graph.edges[upstream_id, cf.contract_id]
+                    edge["edge_type"] = "explicit"
+                    existing_mapping = edge.get("field_mapping", {})
+                    existing_mapping.update(dep.fields)
+                    edge["field_mapping"] = existing_mapping
+                    if dep.fields:
+                        existing_shared = set(edge.get("shared_fields", []))
+                        for k in dep.fields:
+                            col = k.split(".")[-1] if "." in k else k
+                            existing_shared.add(col)
+                        edge["shared_fields"] = list(existing_shared)
+                else:
+                    shared = [k.split(".")[-1] if "." in k else k for k in dep.fields] if dep.fields else []
+                    self.graph.add_edge(
+                        upstream_id,
+                        cf.contract_id,
+                        shared_fields=shared,
+                        field_mapping=dict(dep.fields),
+                        edge_type="explicit",
+                    )
 
     def get_downstream(self, contract_id: str, depth: int = -1) -> list[str]:
         if contract_id not in self.graph:
@@ -97,11 +133,28 @@ class ContractDependencyGraph:
                 "affected_pipelines": [],
             }
 
+        changed_set = set(changed_fields)
+
         directly_affected: list[str] = []
         for successor in self.graph.successors(contract_id):
             edge_data = self.graph.edges[contract_id, successor]
+            fm = edge_data.get("field_mapping", {})
             shared = set(edge_data.get("shared_fields", []))
-            if shared & set(changed_fields):
+            is_explicit = edge_data.get("edge_type") == "explicit"
+
+            if is_explicit and fm:
+                # Precise match: check if any changed field matches a mapping key
+                # Support both full dot-notation and bare column names
+                if set(fm.keys()) & changed_set:
+                    directly_affected.append(successor)
+                else:
+                    bare_keys = {k.split(".")[-1] if "." in k else k for k in fm}
+                    bare_changed = {f.split(".")[-1] if "." in f else f for f in changed_set}
+                    if bare_keys & bare_changed:
+                        directly_affected.append(successor)
+            elif is_explicit and not fm:
+                directly_affected.append(successor)
+            elif shared & changed_set:
                 directly_affected.append(successor)
 
         transitively_affected: list[str] = []
@@ -126,26 +179,97 @@ class ContractDependencyGraph:
             "affected_pipelines": [],
         }
 
-    def to_json(self) -> dict:
+    def lineage_node_set(self, focus_id: str, upstream_depth: int, downstream_depth: int) -> set[str]:
+        """Nodes within hop limits upstream and downstream of focus (includes focus)."""
+        if focus_id not in self.graph:
+            return set()
+        nodes: set[str] = {focus_id}
+        frontier: set[str] = {focus_id}
+        for _ in range(max(0, upstream_depth)):
+            nxt: set[str] = set()
+            for n in frontier:
+                for p in self.graph.predecessors(n):
+                    nodes.add(p)
+                    nxt.add(p)
+            frontier = nxt
+        frontier = {focus_id}
+        for _ in range(max(0, downstream_depth)):
+            nxt = set()
+            for n in frontier:
+                for s in self.graph.successors(n):
+                    nodes.add(s)
+                    nxt.add(s)
+            frontier = nxt
+        return nodes
+
+    def to_json(self, node_ids: set[str] | None = None) -> dict:
+        g = self.graph
+        if node_ids is not None:
+            node_ids = node_ids & set(g.nodes())
+            if not node_ids:
+                return {"nodes": [], "edges": []}
+            g = self.graph.subgraph(node_ids).copy()
+
         nodes = []
-        for node_id, data in self.graph.nodes(data=True):
+        for node_id, data in g.nodes(data=True):
             nodes.append(
                 {
                     "id": node_id,
                     "label": node_id,
                     "owner_team": data.get("owner_team"),
                     "tables": data.get("tables", []),
+                    "platform": data.get("platform") or "",
+                    "platforms": data.get("platforms") or [],
+                    "upstream_count": g.in_degree(node_id),
+                    "downstream_count": g.out_degree(node_id),
+                    "degree": g.degree(node_id),
                 }
             )
 
         edges = []
-        for source, target, data in self.graph.edges(data=True):
+        for source, target, data in g.edges(data=True):
+            edge_data = dict(data)
+            column_pairs = self._build_column_pairs(source, target, edge_data)
             edges.append(
                 {
                     "source": source,
                     "target": target,
                     "shared_fields": data.get("shared_fields", []),
+                    "field_mapping": data.get("field_mapping") or {},
+                    "edge_type": data.get("edge_type", "inferred"),
+                    "column_pairs": column_pairs,
                 }
             )
 
         return {"nodes": nodes, "edges": edges}
+
+    def _first_table_with_field(self, cf: ContractFields, col: str) -> str | None:
+        for table, fields in cf.tables.items():
+            if col in fields:
+                return table
+        return None
+
+    def _build_column_pairs(self, source: str, target: str, edge_data: dict) -> list[dict]:
+        """Upstream/downstream field refs for API and UI."""
+        fm = edge_data.get("field_mapping") or {}
+        et = edge_data.get("edge_type", "inferred")
+        if et == "explicit" and fm:
+            return [
+                {"upstream_ref": str(k), "downstream_ref": str(v), "inferred": False}
+                for k, v in fm.items()
+            ]
+        prod = self._contract_fields.get(source)
+        cons = self._contract_fields.get(target)
+        shared = edge_data.get("shared_fields") or []
+        pairs: list[dict] = []
+        if not prod or not cons:
+            for col in shared:
+                pairs.append({"upstream_ref": col, "downstream_ref": col, "inferred": True})
+            return pairs
+        for col in shared:
+            up_tbl = self._first_table_with_field(prod, col)
+            dn_tbl = self._first_table_with_field(cons, col)
+            ur = f"{up_tbl}.{col}" if up_tbl else col
+            dr = f"{dn_tbl}.{col}" if dn_tbl else col
+            pairs.append({"upstream_ref": ur, "downstream_ref": dr, "inferred": True})
+        return pairs

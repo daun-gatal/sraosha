@@ -8,7 +8,6 @@ Thank you for your interest in contributing to Sraosha! This guide will help you
 
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- [Bun](https://bun.sh/) (for dashboard development)
 - Docker and Docker Compose (for running the full stack)
 
 ### Getting Started
@@ -24,8 +23,8 @@ uv sync --extra dev
 # Install pre-commit hooks
 uv run pre-commit install
 
-# Copy the environment file
-cp .env.example .env
+# Copy the config file
+cp .sraosha.example .sraosha
 
 # Start infrastructure (PostgreSQL + Redis)
 docker compose up postgres redis -d
@@ -37,17 +36,9 @@ uv run sraosha db upgrade
 uv run sraosha serve --reload
 ```
 
-### Dashboard Development
+### Dashboard Templates
 
-```bash
-# Install frontend dependencies
-cd dashboard && bun install
-
-# Start the Vite dev server (proxies API to localhost:8000)
-bun dev
-```
-
-The dashboard dev server runs at `http://localhost:5173` with hot reload. API requests are proxied to the Python backend automatically.
+The dashboard UI is built with Jinja2 templates in `sraosha/api/templates/`. When running the API with `--reload`, template changes are picked up automatically on page refresh -- no separate build step is needed.
 
 ## Running Tests
 

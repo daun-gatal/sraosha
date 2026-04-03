@@ -29,6 +29,7 @@ class ValidationResult:
     checks_failed: int
     failures: list[dict] = field(default_factory=list)
     duration_seconds: float = 0.0
+    log: str = ""
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -106,6 +107,7 @@ class ContractEngine:
             checks_failed=raw["checks_failed"],
             failures=raw.get("failures", []),
             duration_seconds=raw.get("duration_seconds", 0.0),
+            log=raw.get("log", ""),
         )
 
         if not self.dry_run and self.db_session is not None:

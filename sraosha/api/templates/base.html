@@ -1,0 +1,138 @@
+<!doctype html>
+{% from "partials/icons.html" import icon %}
+<html lang="en" x-data="appShell()" x-init="initTheme()" :class="dark ? 'dark' : ''">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem('sraosha-theme');
+        var dark =
+          stored === 'dark' ? true : stored === 'light' ? false : window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.classList.toggle('dark', dark);
+      } catch (_) {}
+    })();
+  </script>
+  <title>{% block title %}Sraosha{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.3/dist/cdn.min.js"></script>
+  {% block head %}{% endblock %}
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100">
+  <div class="flex min-h-screen">
+    <div
+      class="fixed inset-0 z-30 bg-gray-900/50 lg:hidden"
+      x-show="sidebarOpen"
+      x-transition.opacity
+      @click="sidebarOpen = false"
+      x-cloak
+    ></div>
+    {% include "partials/sidebar.html" %}
+    <div class="flex min-w-0 flex-1 flex-col lg:pl-0">
+      <header class="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-gray-200 bg-white/95 px-4 backdrop-blur dark:border-gray-800 dark:bg-gray-900/95">
+        <button type="button" class="rounded-lg p-2 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 lg:hidden" @click="sidebarOpen = true" aria-label="Open menu">
+          {{ icon("bars-3", "w-6 h-6") }}
+        </button>
+        <div class="min-w-0 flex-1">
+          {% block breadcrumbs %}
+          <h1 class="truncate text-sm font-semibold text-gray-900 dark:text-white">{{ active_page | default("Sraosha") }}</h1>
+          {% endblock %}
+        </div>
+        <div class="group relative hidden max-w-xs flex-1 sm:block sm:max-w-md">
+          <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+            {{ icon("magnifying-glass", "w-4 h-4") }}
+          </div>
+          <input
+            type="search"
+            name="q"
+            autocomplete="off"
+            placeholder="Search contracts…"
+            class="w-full rounded-xl border border-gray-200 bg-gray-50 py-2 pl-10 pr-3 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500"
+            hx-get="/ui/search"
+            hx-trigger="keyup changed delay:280ms, search"
+            hx-target="#search-results"
+            hx-include="this"
+          />
+          <div
+            id="search-results"
+            class="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-y-auto rounded-xl border border-gray-200 bg-white py-1 shadow-lg empty:hidden dark:border-gray-700 dark:bg-gray-800"
+          ></div>
+        </div>
+        <button type="button" class="rounded-lg p-2 text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800" @click="toggleDark()" aria-label="Toggle theme">
+          <span x-show="!dark" x-cloak>{{ icon("moon", "w-5 h-5") }}</span>
+          <span x-show="dark" x-cloak>{{ icon("sun", "w-5 h-5") }}</span>
+        </button>
+      </header>
+      <main class="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+        <div class="mx-auto max-w-7xl">
+          {% block content %}{% endblock %}
+        </div>
+      </main>
+      <footer class="border-t border-gray-200 py-4 text-center text-xs text-gray-400 dark:border-gray-800 dark:text-gray-500">
+        Sraosha v0.1.0 · <a href="/docs" class="hover:text-indigo-600 dark:hover:text-indigo-400">API docs</a>
+      </footer>
+    </div>
+  </div>
+  <div id="modal-overlay"></div>
+  <div
+    id="toast-root"
+    class="pointer-events-none fixed bottom-4 right-4 z-50 flex max-w-sm flex-col gap-2"
+    x-data="{ toasts: [] }"
+    @show-toast.window="toasts.push($event.detail); setTimeout(() => toasts.shift(), 5000)"
+  >
+    <template x-for="(t, i) in toasts" :key="i">
+      <div
+        class="pointer-events-auto rounded-xl border px-4 py-3 text-sm shadow-lg"
+        :class="t.type === 'error' ? 'border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-100' : 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100'"
+        x-text="t.message"
+      ></div>
+    </template>
+  </div>
+  <script>
+    function appShell() {
+      return {
+        sidebarOpen: false,
+        dark: false,
+        initTheme() {
+          const stored = localStorage.getItem('sraosha-theme');
+          if (stored === 'dark') this.dark = true;
+          else if (stored === 'light') this.dark = false;
+          else this.dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.classList.toggle('dark', this.dark);
+        },
+        toggleDark() {
+          this.dark = !this.dark;
+          localStorage.setItem('sraosha-theme', this.dark ? 'dark' : 'light');
+          document.documentElement.classList.toggle('dark', this.dark);
+        },
+      };
+    }
+    document.body.addEventListener('htmx:afterRequest', function (evt) {
+      const hdr = evt.detail.xhr.getResponseHeader('HX-Trigger');
+      if (!hdr) return;
+      try {
+        const data = JSON.parse(hdr);
+        if (data.showToast) {
+          window.dispatchEvent(new CustomEvent('show-toast', { detail: data.showToast }));
+        }
+      } catch (_) {}
+    });
+  </script>
+  <style>[x-cloak]{display:none!important}</style>
+</body>
+</html>
