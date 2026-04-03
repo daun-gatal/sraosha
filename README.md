@@ -7,7 +7,6 @@ what the CLI cannot do on its own: **enforce contracts from the CLI and API, run
 Soda-based data quality checks against your databases, map cross-contract impact, and track
 compliance over time** — with a self-hosted dashboard on the same port as the API.
 
-[![CI](https://github.com/YOUR_ORG/sraosha/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_ORG/sraosha/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
 
