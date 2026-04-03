@@ -2,18 +2,274 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths:
+      - "CHANGELOG.md"
+      - "Dockerfile"
 
-permissions:
-  id-token: write
+concurrency:
+  group: release-workflow
+  cancel-in-progress: true
 
 jobs:
-  publish:
+  tag-and-release:
+    name: Tag and Release from Changelog
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+      packages: write
+    outputs:
+      version: ${{ steps.extract_version.outputs.version }}
+      version_number: ${{ steps.extract_version.outputs.version_number }}
+      tag_exists: ${{ steps.check_tag.outputs.exists }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract latest version
+        id: extract_version
+        run: |
+          VERSION_HEADER=$(grep -m 1 "^## \[v" CHANGELOG.md)
+
+          if [ -z "$VERSION_HEADER" ]; then
+            echo "No version header found in CHANGELOG.md"
+            exit 1
+          fi
+
+          VERSION=$(echo "$VERSION_HEADER" | sed -n 's/^## \[\(v[^]]*\)\].*/\1/p')
+
+          if [ -z "$VERSION" ]; then
+            echo "Could not parse version from header: $VERSION_HEADER"
+            exit 1
+          fi
+
+          VERSION_NUMBER=${VERSION#v}
+
+          echo "Detected version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_number=$VERSION_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag exists
+        id: check_tag
+        env:
+          VERSION: ${{ steps.extract_version.outputs.version }}
+        run: |
+          if git rev-parse "$VERSION" >/dev/null 2>&1; then
+            echo "Tag $VERSION already exists. Skipping."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag $VERSION does not exist."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.extract_version.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --tags origin "$VERSION" | grep -q "refs/tags/$VERSION"; then
+            echo "Tag $VERSION already exists remotely (created by another workflow). Skipping tag creation."
+            exit 0
+          fi
+
+          if ! git tag -a "$VERSION" -m "Release $VERSION" 2>&1; then
+            echo "Failed to create tag $VERSION (may already exist locally)"
+            exit 1
+          fi
+
+          if git push origin "$VERSION" 2>&1; then
+            echo "Successfully pushed tag $VERSION"
+          else
+            PUSH_ERROR=$?
+            if git ls-remote --tags origin "$VERSION" | grep -q "refs/tags/$VERSION"; then
+              echo "Tag $VERSION now exists remotely (created by another workflow). Continuing..."
+            else
+              echo "Failed to push tag $VERSION"
+              exit $PUSH_ERROR
+            fi
+          fi
+
+      - name: Extract release notes
+        if: steps.check_tag.outputs.exists == 'false'
+        id: release_notes
+        env:
+          VERSION: ${{ steps.extract_version.outputs.version }}
+        run: |
+          awk -v tag="[$VERSION]" '
+            /^## \[v/ {
+              if (found) exit
+              if (index($0, tag) > 0) { found=1; next }
+            }
+            found { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+
+          echo "Extracted release notes:"
+          cat RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.extract_version.outputs.version }}
+          name: ${{ steps.extract_version.outputs.version }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+
+  # Ensure PyPI Trusted Publishing is configured for this workflow file, job publish-pypi,
+  # environment pypi (verify in PyPI project settings after any workflow rename).
+  publish-pypi:
     name: Publish to PyPI
+    needs: [tag-and-release]
+    if: |
+      needs.tag-and-release.result == 'success' &&
+      needs.tag-and-release.outputs.tag_exists == 'false'
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
-      - run: uv build
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Verify version matches pyproject.toml
+        env:
+          EXPECT: ${{ needs.tag-and-release.outputs.version_number }}
+        run: |
+          ACTUAL=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$ACTUAL" != "$EXPECT" ]; then
+            echo "pyproject.toml version ($ACTUAL) does not match CHANGELOG release ($EXPECT)"
+            exit 1
+          fi
+
+      - name: Build distribution
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  build-and-push:
+    name: Build and Push Docker Image
+    needs: [tag-and-release]
+    if: |
+      always() &&
+      (needs.tag-and-release.result == 'success' || needs.tag-and-release.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_number: ${{ steps.version.outputs.version_number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for code changes
+        id: check_changes
+        run: |
+          BASE_SHA="${{ github.event.before }}"
+          HEAD_SHA="${{ github.sha }}"
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            if [ -n "$LATEST_TAG" ]; then
+              BASE_SHA=$LATEST_TAG
+            else
+              BASE_SHA=$(git rev-parse HEAD~1)
+            fi
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)
+          CODE_CHANGES=$(echo "$CHANGED_FILES" | grep -E '^(sraosha/|tests/|pyproject\.toml|uv\.lock|Dockerfile|alembic/|alembic\.ini|\.sraosha\.example)' || true)
+
+          if [ -z "$CODE_CHANGES" ]; then
+            echo "No code changes detected. Only documentation/metadata files changed."
+            echo "Changed files were:"
+            echo "$CHANGED_FILES"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Code changes detected:"
+            echo "$CODE_CHANGES"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Use version from tag job
+        if: steps.check_changes.outputs.has_changes == 'true'
+        id: version
+        run: |
+          VERSION="${{ needs.tag-and-release.outputs.version }}"
+          VERSION_NUMBER="${{ needs.tag-and-release.outputs.version_number }}"
+
+          if [ -z "$VERSION" ] || [ -z "$VERSION_NUMBER" ]; then
+            echo "Falling back to CHANGELOG.md"
+            VERSION=$(grep -m 1 "^## \[v" CHANGELOG.md | sed -n 's/^## \[\(v[^]]*\)\].*/\1/p')
+            VERSION_NUMBER=${VERSION#v}
+          fi
+
+          if [ -z "$VERSION" ] || [ -z "$VERSION_NUMBER" ]; then
+            echo "Error: Could not determine version"
+            exit 1
+          fi
+
+          echo "Using version: $VERSION ($VERSION_NUMBER)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_number=$VERSION_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        if: steps.check_changes.outputs.has_changes == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        if: steps.check_changes.outputs.has_changes == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        if: steps.check_changes.outputs.has_changes == 'true'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.version_number }}
+            type=sha,prefix=sha-
+
+      - name: Build and push Docker image
+        if: steps.check_changes.outputs.has_changes == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version_number }}
+            COMMIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64

@@ -29,3 +29,7 @@ Instead, please send a detailed report to the maintainers via email or use
 - **Fix and disclosure:** Coordinated with the reporter
 
 We appreciate your help in keeping Sraosha and its users safe.
+
+## Deployment note
+
+When `API_KEY` is set in the Sraosha configuration, HTTP clients must send that value in the `X-API-Key` header for routes that enforce API key verification. Leave `API_KEY` unset in development if you do not need authentication.

@@ -29,8 +29,8 @@ cp .sraosha.example .sraosha
 # Start infrastructure (PostgreSQL + Redis)
 docker compose up postgres redis -d
 
-# Run database migrations
-uv run sraosha db upgrade
+# Run database migrations (Alembic upgrade head)
+uv run sraosha db
 
 # Start the API server
 uv run sraosha serve --reload
@@ -77,7 +77,7 @@ make typecheck
 2. Make your changes. Add tests for new functionality.
 3. Ensure all checks pass: `make lint && make test && make typecheck`
 4. Commit your changes with a clear, descriptive message.
-5. Push your branch and open a pull request.
+5. Push your branch and open a pull request against `main`. CI (lint, type check, tests, package build, optional Docker build test when relevant paths change, Grype) runs on the PR. Publishing to PyPI and GHCR happens via the **Release** workflow when `CHANGELOG.md` / `Dockerfile` on `main` include a new version (see project maintainers’ release process).
 
 ## Code Style
 
