@@ -44,9 +44,7 @@ class ComplianceScore(Base):
     __table_args__ = (UniqueConstraint("team_id", "period_start", "period_end"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUIDType, primary_key=True, default=uuid.uuid4)
-    team_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType, ForeignKey("teams.id"), nullable=False
-    )
+    team_id: Mapped[uuid.UUID] = mapped_column(UUIDType, ForeignKey("teams.id"), nullable=False)
     score: Mapped[float] = mapped_column(Float, nullable=False)
     total_runs: Mapped[int] = mapped_column(Integer, nullable=False)
     passed_runs: Mapped[int] = mapped_column(Integer, nullable=False)

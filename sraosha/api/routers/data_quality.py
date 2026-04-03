@@ -13,9 +13,9 @@ from sraosha.api.deps import get_db
 from sraosha.models.alerting import AlertingProfile
 from sraosha.models.connection import Connection
 from sraosha.models.dq_check import DQCheck
-from sraosha.models.team import Team
 from sraosha.models.dq_run import DQCheckRun
 from sraosha.models.dq_schedule import DQSchedule
+from sraosha.models.team import Team
 from sraosha.schemas.data_quality import (
     DQCheckCreate,
     DQCheckListResponse,
@@ -52,14 +52,13 @@ def _list_stmt():
         .group_by(DQCheckRun.dq_check_id)
         .subquery()
     )
-    LatestRun = aliased(DQCheckRun)
+    latest_run = aliased(DQCheckRun)
     return (
-        select(DQCheck, LatestRun, run_count_sub.c.cnt)
+        select(DQCheck, latest_run, run_count_sub.c.cnt)
         .outerjoin(latest_sub, latest_sub.c.cid == DQCheck.id)
         .outerjoin(
-            LatestRun,
-            (LatestRun.dq_check_id == DQCheck.id)
-            & (LatestRun.run_at == latest_sub.c.latest_at),
+            latest_run,
+            (latest_run.dq_check_id == DQCheck.id) & (latest_run.run_at == latest_sub.c.latest_at),
         )
         .outerjoin(run_count_sub, run_count_sub.c.cid == DQCheck.id)
         .options(selectinload(DQCheck.team), selectinload(DQCheck.alerting_profile))

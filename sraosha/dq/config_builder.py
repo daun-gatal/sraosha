@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -56,9 +56,7 @@ def soda_connector_type_for_server_type(server_type: str) -> str:
     return SODA_TYPE_MAP.get(key, "postgres")
 
 
-def resolve_data_source_name(
-    server_type: str, explicit: str | None
-) -> tuple[str, str | None]:
+def resolve_data_source_name(server_type: str, explicit: str | None) -> tuple[str, str | None]:
     """Resolve the Soda scan data source key. Returns (name, error_message_or_none)."""
     raw = (explicit or "").strip()
     if raw:
@@ -343,10 +341,13 @@ def build_datasource_config(data_source_name: str, server_type: str, conn_params
     safe_name = sanitize_data_source_name(data_source_name)
     body = _build_connection_dict(soda_type, conn_params)
     root = {f"data_source {safe_name}": body}
-    return yaml.dump(
-        root,
-        default_flow_style=False,
-        sort_keys=False,
-        allow_unicode=True,
-        width=120,
+    return cast(
+        str,
+        yaml.dump(
+            root,
+            default_flow_style=False,
+            sort_keys=False,
+            allow_unicode=True,
+            width=120,
+        ),
     )

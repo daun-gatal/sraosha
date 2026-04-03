@@ -11,6 +11,7 @@ import logging
 import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any, cast
 
 from sraosha.tasks.celery_app import celery_app
 
@@ -30,7 +31,8 @@ def _compute_next_run(preset: str, cron_expr: str | None, from_dt: datetime) -> 
         from croniter import croniter
 
         cron = croniter(cron_expr, from_dt)
-        return cron.get_next(datetime).replace(tzinfo=timezone.utc)
+        next_run = cast(datetime, cron.get_next(datetime))
+        return next_run.replace(tzinfo=timezone.utc)
 
     seconds = PRESET_SECONDS.get(preset, 86400)
     return from_dt + timedelta(seconds=seconds)
@@ -82,7 +84,10 @@ def _resolve_scheduler_creds(cur, raw_yaml: str) -> tuple:
         if not servers:
             return None, {}
 
-        cols = "server_type, username, password_encrypted, token_encrypted, service_account_json_encrypted"
+        cols = (
+            "server_type, username, password_encrypted, token_encrypted, "
+            "service_account_json_encrypted"
+        )
 
         for nm in ordered_connection_names_from_contract_doc(doc):
             cur.execute(f"SELECT {cols} FROM connections WHERE name = %s", (nm,))
@@ -90,10 +95,13 @@ def _resolve_scheduler_creds(cur, raw_yaml: str) -> tuple:
             if crow:
                 return _parse_cred_row(crow)
 
-        first_type = next(iter(servers.values()), {})
-        first_type = first_type.get("type", "") if isinstance(first_type, dict) else ""
+        first_server: Any = next(iter(servers.values()), {})
+        first_type: str = first_server.get("type", "") if isinstance(first_server, dict) else ""
         if first_type:
-            cur.execute(f"SELECT {cols} FROM connections WHERE server_type = %s LIMIT 1", (first_type,))
+            cur.execute(
+                f"SELECT {cols} FROM connections WHERE server_type = %s LIMIT 1",
+                (first_type,),
+            )
             crow = cur.fetchone()
             if crow:
                 return _parse_cred_row(crow)
@@ -200,10 +208,20 @@ def run_contract_validation(self, contract_id: str) -> dict:
                 failures, server, triggered_by, duration_ms, error_message, run_log, run_at)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
-                uuid.uuid4(), contract_id, status, enforcement_mode,
-                checks_total, checks_passed, checks_failed,
+                uuid.uuid4(),
+                contract_id,
+                status,
+                enforcement_mode,
+                checks_total,
+                checks_passed,
+                checks_failed,
                 json.dumps(failures) if failures else None,
-                "production", "scheduler", duration_ms, error_message, run_log, now,
+                "production",
+                "scheduler",
+                duration_ms,
+                error_message,
+                run_log,
+                now,
             ),
         )
 

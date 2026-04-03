@@ -16,7 +16,9 @@ class DQCheck(Base):
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     connection_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType, ForeignKey("connections.id"), nullable=False,
+        UUIDType,
+        ForeignKey("connections.id"),
+        nullable=False,
     )
     team_id: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True
@@ -27,7 +29,9 @@ class DQCheck(Base):
     data_source_name: Mapped[str] = mapped_column(String, nullable=False)
     sodacl_yaml: Mapped[str] = mapped_column(Text, nullable=False)
     tables: Mapped[list | None] = mapped_column(JSONColumnType, nullable=True, default=list)
-    check_categories: Mapped[list | None] = mapped_column(JSONColumnType, nullable=True, default=list)
+    check_categories: Mapped[list | None] = mapped_column(
+        JSONColumnType, nullable=True, default=list
+    )
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     tags: Mapped[list | None] = mapped_column(JSONColumnType, nullable=True, default=list)
     created_at: Mapped[datetime] = mapped_column(

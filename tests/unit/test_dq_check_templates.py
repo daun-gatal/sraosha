@@ -43,7 +43,8 @@ def test_consistency_multi_column():
         other_table="regions",
         other_columns="region_id, country_code",
     )
-    assert "values in (region_id, country_code) must exist in regions (region_id, country_code)" in y
+    expected = "values in (region_id, country_code) must exist in regions (region_id, country_code)"
+    assert expected in y
 
 
 def test_cross_row_count():

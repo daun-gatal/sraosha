@@ -1,6 +1,7 @@
 import logging
 import tempfile
 from pathlib import Path
+from typing import Any, cast
 
 import httpx
 import yaml
@@ -19,13 +20,13 @@ class ContractLoader:
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"Contract file not found: {path}")
-        return yaml.safe_load(p.read_text(encoding="utf-8"))
+        return cast(dict[Any, Any], yaml.safe_load(p.read_text(encoding="utf-8")))
 
     @staticmethod
     def from_url(url: str) -> dict:
         resp = httpx.get(url, follow_redirects=True, timeout=30.0)
         resp.raise_for_status()
-        return yaml.safe_load(resp.text)
+        return cast(dict[Any, Any], yaml.safe_load(resp.text))
 
     @staticmethod
     def from_git(repo_url: str, file_path: str, branch: str = "main") -> dict:
@@ -44,7 +45,7 @@ class ContractLoader:
                 raise FileNotFoundError(
                     f"File '{file_path}' not found in repo '{repo_url}' (branch={branch})"
                 )
-            return yaml.safe_load(full_path.read_text(encoding="utf-8"))
+            return cast(dict[Any, Any], yaml.safe_load(full_path.read_text(encoding="utf-8")))
 
     @staticmethod
     def auto(source: str) -> dict:

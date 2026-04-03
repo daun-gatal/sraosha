@@ -17,13 +17,21 @@ engine = create_async_engine(TEST_DB_URL, echo=False)
 TestSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
+def _create_team_tables(sync_conn) -> None:
+    Base.metadata.create_all(sync_conn, tables=[Team.__table__])
+
+
+def _drop_team_tables(sync_conn) -> None:
+    Base.metadata.drop_all(sync_conn, tables=[Team.__table__])
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
     async with engine.begin() as conn:
-        await conn.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn, tables=[Team.__table__]))
+        await conn.run_sync(_create_team_tables)
     yield
     async with engine.begin() as conn:
-        await conn.run_sync(lambda sync_conn: Base.metadata.drop_all(sync_conn, tables=[Team.__table__]))
+        await conn.run_sync(_drop_team_tables)
 
 
 @pytest.mark.asyncio

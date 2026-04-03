@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def ordered_connection_names_from_contract_doc(doc: dict) -> list[str]:
-    """Connection names to try in YAML ``servers`` block order (explicit map or server key as name)."""
+    """Names to try in YAML ``servers`` order (explicit map or server key as name)."""
     servers = doc.get("servers") or {}
     if not isinstance(servers, dict) or not servers:
         return []
@@ -74,7 +74,9 @@ ENV_VAR_MAP: dict[str, dict[str, str]] = {
 
 
 @contextlib.contextmanager
-def inject_credentials(server_type: str, credentials: dict[str, Any]) -> Generator[None, None, None]:
+def inject_credentials(
+    server_type: str, credentials: dict[str, Any]
+) -> Generator[None, None, None]:
     """Context manager that sets DATACONTRACT_* env vars and cleans up after."""
     mapping = ENV_VAR_MAP.get(server_type, {})
     originals: dict[str, str | None] = {}
@@ -103,7 +105,6 @@ def resolve_connection_credentials(contract_id: str) -> tuple[str | None, dict[s
     """
     import yaml as _yaml
 
-    from sraosha.crypto import decrypt
     from sraosha.tasks.db import get_sync_connection
 
     with get_sync_connection() as conn:
@@ -168,7 +169,8 @@ def _parse_sync_cred_row(row: tuple) -> tuple[str, dict[str, Any]]:
 
 
 async def resolve_connection_credentials_async(
-    contract_id: str, db,
+    contract_id: str,
+    db,
 ) -> tuple[str | None, dict[str, Any]]:
     """Look up connection credentials (async, for API).
 
@@ -180,9 +182,7 @@ async def resolve_connection_credentials_async(
     from sraosha.models.connection import Connection
     from sraosha.models.contract import Contract
 
-    result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     contract = result.scalar_one_or_none()
     if not contract:
         return None, {}
@@ -205,7 +205,9 @@ async def resolve_connection_credentials_async(
         if conn_obj:
             return _extract_creds(conn_obj)
 
-    server_types = [s.get("type") for s in servers.values() if isinstance(s, dict) and s.get("type")]
+    server_types = [
+        s.get("type") for s in servers.values() if isinstance(s, dict) and s.get("type")
+    ]
     if server_types:
         res = await db.execute(
             select(Connection).where(Connection.server_type == server_types[0]).limit(1)

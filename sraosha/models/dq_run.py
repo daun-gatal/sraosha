@@ -12,7 +12,9 @@ class DQCheckRun(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUIDType, primary_key=True, default=uuid.uuid4)
     dq_check_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType, ForeignKey("dq_checks.id"), nullable=False,
+        UUIDType,
+        ForeignKey("dq_checks.id"),
+        nullable=False,
     )
     status: Mapped[str] = mapped_column(String, nullable=False)
     checks_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

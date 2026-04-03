@@ -6,6 +6,7 @@ import json
 import uuid as uuid_mod
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any, cast
 
 import yaml
 from fastapi import APIRouter, Depends, Form, Query, Request
@@ -14,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from starlette.datastructures import UploadFile
 
 from sraosha.api.contract_yaml import (
     connection_id_to_name_map_from_connections,
@@ -27,7 +29,6 @@ from sraosha.api.routers.data_quality import _bucket_latest, _list_stmt
 from sraosha.api.routers.schedules import _compute_next_run
 from sraosha.compliance.scoring import rolling_30d_window, sparkline_svg_points
 from sraosha.dq.check_templates import TEMPLATES as DQ_CHECK_TEMPLATES
-from sraosha.schemas.dq_wizard import parse_dq_generate_params
 from sraosha.dq.config_builder import (
     SODA_CONNECTOR_TYPES,
     explicit_data_source_for_form,
@@ -43,9 +44,20 @@ from sraosha.models.dq_schedule import DQSchedule
 from sraosha.models.run import ValidationRun
 from sraosha.models.schedule import ValidationSchedule
 from sraosha.models.team import ComplianceScore, Team
+from sraosha.schemas.dq_wizard import parse_dq_generate_params
 from sraosha.tasks.dq_scan import run_dq_check
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
+
+
+def _form_text(val: str | UploadFile | None, default: str = "") -> str:
+    """Coerce Starlette form values to ``str`` (HTML forms use strings; uploads are ignored)."""
+    if val is None:
+        return default
+    if isinstance(val, UploadFile):
+        return default
+    return val
+
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
@@ -74,10 +86,7 @@ async def global_search(
             for c in cr.scalars().all()
         ]
         tr = await db.execute(
-            select(Team.name)
-            .where(Team.name.ilike(f"%{q}%"))
-            .order_by(Team.name)
-            .limit(8)
+            select(Team.name).where(Team.name.ilike(f"%{q}%")).order_by(Team.name).limit(8)
         )
         teams = [r[0] for r in tr.all()]
     return templates.TemplateResponse(
@@ -91,12 +100,11 @@ async def global_search(
 # Overview
 # ---------------------------------------------------------------------------
 
+
 @router.get("/", response_class=HTMLResponse)
 async def overview(request: Request, db: AsyncSession = Depends(get_db)):
     contracts_result = await db.execute(
-        select(Contract)
-        .options(selectinload(Contract.team))
-        .order_by(Contract.created_at.desc())
+        select(Contract).options(selectinload(Contract.team)).order_by(Contract.created_at.desc())
     )
     contracts = contracts_result.scalars().all()
 
@@ -109,9 +117,7 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
         func.max(ValidationRun.run_at).label("last_run_at"),
     ).group_by(ValidationRun.contract_id)
     summary_result = await db.execute(summary_query)
-    summary_map = {
-        row.contract_id: row for row in summary_result.all()
-    }
+    summary_map = {row.contract_id: row for row in summary_result.all()}
 
     rows = []
     total_failed = 0
@@ -136,16 +142,18 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
         else:
             status = "unknown"
 
-        rows.append({
-            "contract_id": c.contract_id,
-            "title": c.title,
-            "owner_team": c.owner_team,
-            "enforcement_mode": c.enforcement_mode,
-            "status": status,
-            "total_runs": total_runs,
-            "pass_rate": pass_rate,
-            "last_run_rel": last_run_rel,
-        })
+        rows.append(
+            {
+                "contract_id": c.contract_id,
+                "title": c.title,
+                "owner_team": c.owner_team,
+                "enforcement_mode": c.enforcement_mode,
+                "status": status,
+                "total_runs": total_runs,
+                "pass_rate": pass_rate,
+                "last_run_rel": last_run_rel,
+            }
+        )
 
     total = len(contracts)
     pass_pct_num = int(passing_count / total * 100) if total else 0
@@ -165,23 +173,23 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
     scheduled_today = sched_today.scalar() or 0
 
     activity_result = await db.execute(
-        select(ValidationRun)
-        .order_by(ValidationRun.run_at.desc())
-        .limit(12)
+        select(ValidationRun).order_by(ValidationRun.run_at.desc()).limit(12)
     )
     activity_runs = activity_result.scalars().all()
     activity = []
     titles = {c.contract_id: c.title for c in contracts}
     for r in activity_runs:
-        activity.append({
-            "run_id": str(r.id),
-            "contract_id": r.contract_id,
-            "title": titles.get(r.contract_id, r.contract_id),
-            "status": r.status,
-            "run_at": r.run_at,
-            "when": _relative_time(r.run_at),
-            "checks": f"{r.checks_passed}/{r.checks_total}",
-        })
+        activity.append(
+            {
+                "run_id": str(r.id),
+                "contract_id": r.contract_id,
+                "title": titles.get(r.contract_id, r.contract_id),
+                "status": r.status,
+                "run_at": r.run_at,
+                "when": _relative_time(r.run_at),
+                "checks": f"{r.checks_passed}/{r.checks_total}",
+            }
+        )
 
     dq_total = await db.scalar(select(func.count()).select_from(DQCheck)) or 0
     dq_healthy = 0
@@ -195,8 +203,11 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
             .subquery()
         )
         latest_runs = await db.execute(
-            select(DQCheckRun.status)
-            .join(latest_sub, (DQCheckRun.dq_check_id == latest_sub.c.dq_check_id) & (DQCheckRun.run_at == latest_sub.c.latest_at))
+            select(DQCheckRun.status).join(
+                latest_sub,
+                (DQCheckRun.dq_check_id == latest_sub.c.dq_check_id)
+                & (DQCheckRun.run_at == latest_sub.c.latest_at),
+            )
         )
         for (st,) in latest_runs.all():
             if st and st.lower() in ("passed", "pass"):
@@ -204,9 +215,7 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
 
     dq_display = f"{dq_healthy}/{dq_total}" if dq_total else "—"
 
-    dq_checks_result = await db.execute(
-        select(DQCheck).order_by(DQCheck.name).limit(8)
-    )
+    dq_checks_result = await db.execute(select(DQCheck).order_by(DQCheck.name).limit(8))
     all_dq_checks = list(dq_checks_result.scalars().all())
 
     dq_latest_runs: dict[uuid_mod.UUID, DQCheckRun] = {}
@@ -220,8 +229,7 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
             .subquery()
         )
         lr_result = await db.execute(
-            select(DQCheckRun)
-            .join(
+            select(DQCheckRun).join(
                 lr_sub,
                 (DQCheckRun.dq_check_id == lr_sub.c.dq_check_id)
                 & (DQCheckRun.run_at == lr_sub.c.latest_at),
@@ -233,34 +241,65 @@ async def overview(request: Request, db: AsyncSession = Depends(get_db)):
     dq_rows = []
     for chk in all_dq_checks:
         lr = dq_latest_runs.get(chk.id)
-        dq_rows.append({
-            "id": str(chk.id),
-            "name": chk.name,
-            "status": lr.status.lower() if lr else "no_runs",
-            "run_at_rel": _relative_time(lr.run_at) if lr else None,
-            "checks_passed": lr.checks_passed if lr else 0,
-            "checks_total": lr.checks_total if lr else 0,
-            "checks_failed": lr.checks_failed if lr else 0,
-        })
+        dq_rows.append(
+            {
+                "id": str(chk.id),
+                "name": chk.name,
+                "status": lr.status.lower() if lr else "no_runs",
+                "run_at_rel": _relative_time(lr.run_at) if lr else None,
+                "checks_passed": lr.checks_passed if lr else 0,
+                "checks_total": lr.checks_total if lr else 0,
+                "checks_failed": lr.checks_failed if lr else 0,
+            }
+        )
 
     stats = [
-        {"id": "total", "label": "Total Contracts", "value": total, "hint": "Registered"},
-        {"id": "pass_rate", "label": "Pass rate", "value": pct_display, "hint": "Contracts with all runs passing"},
-        {"id": "dq_health", "label": "DQ Checks", "value": dq_display, "hint": "Healthy / total DQ checks"},
-        {"id": "failed_runs", "label": "Failed runs", "value": total_failed, "hint": "Sum of failed validations"},
-        {"id": "schedules", "label": "Schedules today", "value": scheduled_today, "hint": "Runs due today (UTC)"},
+        {
+            "id": "total",
+            "label": "Total Contracts",
+            "value": total,
+            "hint": "Registered",
+        },
+        {
+            "id": "pass_rate",
+            "label": "Pass rate",
+            "value": pct_display,
+            "hint": "Contracts with all runs passing",
+        },
+        {
+            "id": "dq_health",
+            "label": "DQ Checks",
+            "value": dq_display,
+            "hint": "Healthy / total DQ checks",
+        },
+        {
+            "id": "failed_runs",
+            "label": "Failed runs",
+            "value": total_failed,
+            "hint": "Sum of failed validations",
+        },
+        {
+            "id": "schedules",
+            "label": "Schedules today",
+            "value": scheduled_today,
+            "hint": "Runs due today (UTC)",
+        },
     ]
 
-    return templates.TemplateResponse(request, "overview.html", {
-        "active_page": "Overview",
-        "stats": stats,
-        "pass_pct_num": pass_pct_num,
-        "contracts": sorted(rows, key=lambda x: x["title"] or "")[:8],
-        "total_contracts": total,
-        "activity": activity,
-        "dq_checks": dq_rows,
-        "dq_total": dq_total,
-    })
+    return templates.TemplateResponse(
+        request,
+        "overview.html",
+        {
+            "active_page": "Overview",
+            "stats": stats,
+            "pass_pct_num": pass_pct_num,
+            "contracts": sorted(rows, key=lambda x: x["title"] or "")[:8],
+            "total_contracts": total,
+            "activity": activity,
+            "dq_checks": dq_rows,
+            "dq_total": dq_total,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +322,10 @@ def _parse_uuid(val: object) -> uuid_mod.UUID | None:
 async def _resolve_team_id_from_doc(
     db: AsyncSession, xs: dict, info: dict
 ) -> tuple[uuid_mod.UUID | None, list[str]]:
-    """Resolve team FK from x-sraosha. Explicit team_id UUID must exist; owner_team/info.owner only match existing teams."""
+    """Resolve team FK from x-sraosha.
+
+    Explicit team_id UUID must exist; owner_team/info.owner only match existing teams.
+    """
     errs: list[str] = []
     raw_tid = xs.get("team_id")
     if raw_tid is not None and str(raw_tid).strip():
@@ -301,9 +343,7 @@ async def _resolve_team_id_from_doc(
     return None, errs
 
 
-async def _resolve_alerting_profile_id_from_doc(
-    db: AsyncSession, xs: dict
-) -> uuid_mod.UUID | None:
+async def _resolve_alerting_profile_id_from_doc(db: AsyncSession, xs: dict) -> uuid_mod.UUID | None:
     aid = _parse_uuid(xs.get("alerting_profile_id"))
     if aid is None:
         return None
@@ -369,9 +409,7 @@ async def _compliance_page_context(db: AsyncSession) -> dict:
     teams_result = await db.execute(select(Team).order_by(Team.name))
     teams = list(teams_result.scalars().all())
 
-    contracts_result = await db.execute(
-        select(Contract).options(selectinload(Contract.team))
-    )
+    contracts_result = await db.execute(select(Contract).options(selectinload(Contract.team)))
     all_contracts = list(contracts_result.scalars().all())
     contracts_by_team: dict[str, list[Contract]] = {}
     for c in all_contracts:
@@ -381,13 +419,17 @@ async def _compliance_page_context(db: AsyncSession) -> dict:
     for lst in contracts_by_team.values():
         lst.sort(key=lambda x: (x.title or x.contract_id).lower())
 
-    summary_query = select(
-        ValidationRun.contract_id,
-        func.count().label("total_runs"),
-        func.count().filter(ValidationRun.status == "passed").label("passed"),
-        func.count().filter(ValidationRun.status == "failed").label("failed"),
-        func.count().filter(ValidationRun.status == "error").label("error"),
-    ).where(ValidationRun.run_at >= cutoff).group_by(ValidationRun.contract_id)
+    summary_query = (
+        select(
+            ValidationRun.contract_id,
+            func.count().label("total_runs"),
+            func.count().filter(ValidationRun.status == "passed").label("passed"),
+            func.count().filter(ValidationRun.status == "failed").label("failed"),
+            func.count().filter(ValidationRun.status == "error").label("error"),
+        )
+        .where(ValidationRun.run_at >= cutoff)
+        .group_by(ValidationRun.contract_id)
+    )
     summary_result = await db.execute(summary_query)
     run_summary = {row.contract_id: row for row in summary_result.all()}
 
@@ -458,12 +500,14 @@ async def _compliance_page_context(db: AsyncSession) -> dict:
             pr = None
             if s and tr:
                 pr = int(round((s.passed or 0) / tr * 100))
-            contract_rows.append({
-                "contract_id": c.contract_id,
-                "title": c.title or c.contract_id,
-                "pass_rate": pr,
-                "total_runs": tr,
-            })
+            contract_rows.append(
+                {
+                    "contract_id": c.contract_id,
+                    "title": c.title or c.contract_id,
+                    "pass_rate": pr,
+                    "total_runs": tr,
+                }
+            )
 
         if latest is not None:
             display_score = round(latest.score, 1)
@@ -478,23 +522,25 @@ async def _compliance_page_context(db: AsyncSession) -> dict:
             score_source = "none"
             rank_sort = -1.0
 
-        entries_raw.append({
-            "team_id": str(team.id),
-            "team_name": team.name,
-            "rank_sort": rank_sort,
-            "display_score": display_score,
-            "score": display_score,
-            "score_source": score_source,
-            "stored_score": stored_score,
-            "live_pass_pct": live_pass_pct,
-            "contracts_owned": contracts_owned,
-            "violations_30d": violations_live,
-            "total_runs_30d": total_runs,
-            "score_sparkline": spark,
-            "sparkline_points": spark_pts,
-            "contracts_detail": contract_rows,
-            "has_snapshot": latest is not None,
-        })
+        entries_raw.append(
+            {
+                "team_id": str(team.id),
+                "team_name": team.name,
+                "rank_sort": rank_sort,
+                "display_score": display_score,
+                "score": display_score,
+                "score_source": score_source,
+                "stored_score": stored_score,
+                "live_pass_pct": live_pass_pct,
+                "contracts_owned": contracts_owned,
+                "violations_30d": violations_live,
+                "total_runs_30d": total_runs,
+                "score_sparkline": spark,
+                "sparkline_points": spark_pts,
+                "contracts_detail": contract_rows,
+                "has_snapshot": latest is not None,
+            }
+        )
 
     entries_raw.sort(key=lambda x: x["rank_sort"], reverse=True)
     items: list[dict] = []
@@ -511,13 +557,15 @@ async def _compliance_page_context(db: AsyncSession) -> dict:
         if not s or s.total_runs == 0:
             continue
         pr = int(round((s.passed or 0) / s.total_runs * 100))
-        at_risk.append({
-            "contract_id": c.contract_id,
-            "title": c.title or c.contract_id,
-            "owner_team": c.owner_team,
-            "pass_rate": pr,
-            "total_runs": s.total_runs,
-        })
+        at_risk.append(
+            {
+                "contract_id": c.contract_id,
+                "title": c.title or c.contract_id,
+                "owner_team": c.owner_team,
+                "pass_rate": pr,
+                "total_runs": s.total_runs,
+            }
+        )
     at_risk.sort(key=lambda x: x["pass_rate"])
     at_risk = at_risk[:8]
 
@@ -532,14 +580,16 @@ async def _compliance_page_context(db: AsyncSession) -> dict:
     )
     recent_failures: list[dict] = []
     for r in fail_result.scalars().all():
-        c = next((x for x in all_contracts if x.contract_id == r.contract_id), None)
-        recent_failures.append({
-            "contract_id": r.contract_id,
-            "title": title_map.get(r.contract_id, r.contract_id),
-            "team": c.owner_team if c else None,
-            "status": r.status,
-            "when": _relative_time(r.run_at),
-        })
+        matched = next((x for x in all_contracts if x.contract_id == r.contract_id), None)
+        recent_failures.append(
+            {
+                "contract_id": r.contract_id,
+                "title": title_map.get(r.contract_id, r.contract_id),
+                "team": matched.owner_team if matched else None,
+                "status": r.status,
+                "when": _relative_time(r.run_at),
+            }
+        )
 
     scores_for_avg = [e["display_score"] for e in items if e["display_score"] is not None]
     org_avg = round(sum(scores_for_avg) / len(scores_for_avg), 1) if scores_for_avg else None
@@ -558,9 +608,7 @@ async def _compliance_page_context(db: AsyncSession) -> dict:
             return dt.replace(tzinfo=timezone.utc)
         return dt
 
-    snapshot_stale = (
-        max_computed is None or (now - _utc(max_computed)) > timedelta(days=7)
-    )
+    snapshot_stale = max_computed is None or (now - _utc(max_computed)) > timedelta(days=7)
 
     last_computed_display = None
     if max_computed:
@@ -603,6 +651,7 @@ async def compliance_page(request: Request, db: AsyncSession = Depends(get_db)):
 # Impact map
 # ---------------------------------------------------------------------------
 
+
 async def _build_analyzer(db: AsyncSession) -> ImpactAnalyzer:
     result = await db.execute(
         select(Contract).where(Contract.is_active == True)  # noqa: E712
@@ -621,9 +670,7 @@ async def _build_analyzer(db: AsyncSession) -> ImpactAnalyzer:
 
 async def _contract_run_status_map(db: AsyncSession) -> dict[str, str]:
     """Latest validation status per contract_id."""
-    runs_result = await db.execute(
-        select(ValidationRun).order_by(ValidationRun.run_at.desc())
-    )
+    runs_result = await db.execute(select(ValidationRun).order_by(ValidationRun.run_at.desc()))
     status_map: dict[str, str] = {}
     for r in runs_result.scalars().all():
         if r.contract_id not in status_map:
@@ -633,9 +680,7 @@ async def _contract_run_status_map(db: AsyncSession) -> dict[str, str]:
 
 async def _dq_latest_run_status_map(db: AsyncSession) -> dict[uuid_mod.UUID, str]:
     """Latest DQ run status per check id."""
-    runs_result = await db.execute(
-        select(DQCheckRun).order_by(DQCheckRun.run_at.desc())
-    )
+    runs_result = await db.execute(select(DQCheckRun).order_by(DQCheckRun.run_at.desc()))
     status_map: dict[uuid_mod.UUID, str] = {}
     for r in runs_result.scalars().all():
         if r.dq_check_id not in status_map:
@@ -647,17 +692,19 @@ def _dq_templates_for_js() -> list[dict]:
     """Serialise check template metadata for the JS wizard (no callables)."""
     out = []
     for key, meta in DQ_CHECK_TEMPLATES.items():
-        out.append({
-            "key": key,
-            "label": meta["label"],
-            "description": meta.get("description", ""),
-            "icon": meta.get("icon", ""),
-            "category": meta.get("category", "integrity"),
-            "soda_section": meta.get("soda_section"),
-            "needs_column": meta.get("needs_column", False),
-            "column_types": meta.get("column_types", []),
-            "params": meta.get("params", []),
-        })
+        out.append(
+            {
+                "key": key,
+                "label": meta["label"],
+                "description": meta.get("description", ""),
+                "icon": meta.get("icon", ""),
+                "category": meta.get("category", "integrity"),
+                "soda_section": meta.get("soda_section"),
+                "needs_column": meta.get("needs_column", False),
+                "column_types": meta.get("column_types", []),
+                "params": meta.get("params", []),
+            }
+        )
     return out
 
 
@@ -695,8 +742,7 @@ async def impact_page(
     fields_by_contract: dict[str, dict[str, list[str]]] = {}
     for cf in analyzer.graph._contract_fields.values():
         fields_by_contract[cf.contract_id] = {
-            table: list(field_names)
-            for table, field_names in cf.tables.items()
+            table: list(field_names) for table, field_names in cf.tables.items()
         }
 
     cy_nodes = []
@@ -704,22 +750,24 @@ async def impact_page(
         cid = n["id"]
         st = status_map.get(cid, "none")
         title = titles.get(cid, n.get("label", cid))
-        cy_nodes.append({
-            "data": {
-                "id": cid,
-                "title": title,
-                "subtitle": cid,
-                "label": f"{title}\n{cid}",
-                "platform": n.get("platform") or "",
-                "platforms": n.get("platforms") or [],
-                "is_focus": "1" if focus and cid == focus else "0",
-                "status": st,
-                "owner_team": owners.get(cid, n.get("owner_team", "")),
-                "tables": n.get("tables", []),
-                "upstream_count": n.get("upstream_count", 0),
-                "downstream_count": n.get("downstream_count", 0),
-            },
-        })
+        cy_nodes.append(
+            {
+                "data": {
+                    "id": cid,
+                    "title": title,
+                    "subtitle": cid,
+                    "label": f"{title}\n{cid}",
+                    "platform": n.get("platform") or "",
+                    "platforms": n.get("platforms") or [],
+                    "is_focus": "1" if focus and cid == focus else "0",
+                    "status": st,
+                    "owner_team": owners.get(cid, n.get("owner_team", "")),
+                    "tables": n.get("tables", []),
+                    "upstream_count": n.get("upstream_count", 0),
+                    "downstream_count": n.get("downstream_count", 0),
+                },
+            }
+        )
     cy_edges = []
     for i, e in enumerate(edges):
         sf = e.get("shared_fields") or []
@@ -730,18 +778,20 @@ async def impact_page(
             elabel = f"{len(sf)} fields"
         else:
             elabel = e.get("edge_type", "link")
-        cy_edges.append({
-            "data": {
-                "id": f"e{i}",
-                "source": e["source"],
-                "target": e["target"],
-                "label": elabel,
-                "edge_type": e.get("edge_type", "inferred"),
-                "shared_fields": sf,
-                "field_mapping": fm,
-                "column_pairs": e.get("column_pairs") or [],
-            },
-        })
+        cy_edges.append(
+            {
+                "data": {
+                    "id": f"e{i}",
+                    "source": e["source"],
+                    "target": e["target"],
+                    "label": elabel,
+                    "edge_type": e.get("edge_type", "inferred"),
+                    "shared_fields": sf,
+                    "field_mapping": fm,
+                    "column_pairs": e.get("column_pairs") or [],
+                },
+            }
+        )
     graph_elements = {"nodes": cy_nodes, "edges": cy_edges}
 
     full_graph = analyzer.to_json()
@@ -761,17 +811,21 @@ async def impact_page(
         "inferred_links": inferred_count,
     }
 
-    return templates.TemplateResponse(request, "impact.html", {
-        "active_page": "Impact Map",
-        "graph_elements_json": json.dumps(graph_elements),
-        "fields_by_contract_json": json.dumps(fields_by_contract),
-        "nodes": nodes,
-        "all_contracts": all_contracts,
-        "stats": stats,
-        "lineage_focus": focus or "",
-        "lineage_upstream_depth": upstream_depth,
-        "lineage_downstream_depth": downstream_depth,
-    })
+    return templates.TemplateResponse(
+        request,
+        "impact.html",
+        {
+            "active_page": "Impact Map",
+            "graph_elements_json": json.dumps(graph_elements),
+            "fields_by_contract_json": json.dumps(fields_by_contract),
+            "nodes": nodes,
+            "all_contracts": all_contracts,
+            "stats": stats,
+            "lineage_focus": focus or "",
+            "lineage_upstream_depth": upstream_depth,
+            "lineage_downstream_depth": downstream_depth,
+        },
+    )
 
 
 @router.post("/impact/analyze", response_class=HTMLResponse)
@@ -788,9 +842,7 @@ async def impact_analyze(
             {"error": "Please select a contract and enter at least one field."},
         )
 
-    contract_result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    contract_result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     if not contract_result.scalar_one_or_none():
         return templates.TemplateResponse(
             request,
@@ -814,29 +866,37 @@ async def impact_analyze(
     directly_affected_contracts = []
     for cid in impact["directly_affected"]:
         info = contract_info.get(cid, {})
-        directly_affected_contracts.append({
-            "id": cid,
-            "title": info.get("title", cid),
-            "owner": info.get("owner", ""),
-            "status": status_map.get(cid, "none"),
-        })
+        directly_affected_contracts.append(
+            {
+                "id": cid,
+                "title": info.get("title", cid),
+                "owner": info.get("owner", ""),
+                "status": status_map.get(cid, "none"),
+            }
+        )
     transitively_affected_contracts = []
     for cid in impact["transitively_affected"]:
         info = contract_info.get(cid, {})
-        transitively_affected_contracts.append({
-            "id": cid,
-            "title": info.get("title", cid),
-            "owner": info.get("owner", ""),
-            "status": status_map.get(cid, "none"),
-        })
+        transitively_affected_contracts.append(
+            {
+                "id": cid,
+                "title": info.get("title", cid),
+                "owner": info.get("owner", ""),
+                "status": status_map.get(cid, "none"),
+            }
+        )
 
-    return templates.TemplateResponse(request, "partials/impact_result.html", {
-        "severity": impact["severity"],
-        "directly_affected": directly_affected_contracts,
-        "transitively_affected": transitively_affected_contracts,
-        "affected_ids_json": json.dumps(affected_ids),
-        "changed_fields": fields,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/impact_result.html",
+        {
+            "severity": impact["severity"],
+            "directly_affected": directly_affected_contracts,
+            "transitively_affected": transitively_affected_contracts,
+            "affected_ids_json": json.dumps(affected_ids),
+            "changed_fields": fields,
+        },
+    )
 
 
 @router.post("/impact/link", response_class=HTMLResponse)
@@ -857,12 +917,11 @@ async def impact_link(
 
     field_mapping: dict[str, str] = {}
     for up, lo in zip(field_upstreams, field_locals):
-        if up and lo:
-            field_mapping[up] = lo
+        up_s, lo_s = _form_text(up), _form_text(lo)
+        if up_s and lo_s:
+            field_mapping[up_s] = lo_s
 
-    result = await db.execute(
-        select(Contract).where(Contract.contract_id == downstream_id)
-    )
+    result = await db.execute(select(Contract).where(Contract.contract_id == downstream_id))
     contract = result.scalar_one_or_none()
     if not contract:
         return RedirectResponse("/ui/impact", status_code=303)
@@ -909,6 +968,7 @@ async def impact_link(
 # Contract CRUD
 # ---------------------------------------------------------------------------
 
+
 def _empty_form_data() -> dict:
     """Return default values for an empty contract form."""
     return {
@@ -949,14 +1009,9 @@ async def contracts_list(
     """Searchable / filterable contract list."""
     query = select(Contract).options(selectinload(Contract.team))
     if q:
-        query = query.where(
-            Contract.title.ilike(f"%{q}%") | Contract.contract_id.ilike(f"%{q}%")
-        )
+        query = query.where(Contract.title.ilike(f"%{q}%") | Contract.contract_id.ilike(f"%{q}%"))
     if team:
-        query = (
-            query.join(Team, Contract.team_id == Team.id)
-            .where(Team.name == team)
-        )
+        query = query.join(Team, Contract.team_id == Team.id).where(Team.name == team)
 
     contracts_result = await db.execute(query)
     contracts = list(contracts_result.scalars().all())
@@ -971,7 +1026,7 @@ async def contracts_list(
     summary_result = await db.execute(summary_query)
     summary_map = {row.contract_id: row for row in summary_result.all()}
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     for c in contracts:
         s = summary_map.get(c.contract_id)
         total_runs = s.total_runs if s else 0
@@ -983,43 +1038,57 @@ async def contracts_list(
             status = "unknown"
         pass_rate = int(round(passed_n / total_runs * 100)) if total_runs else None
         last_at = s.last_run_at if s else None
-        rows.append({
-            "contract_id": c.contract_id,
-            "title": c.title,
-            "description": c.description,
-            "owner_team": c.owner_team,
-            "enforcement_mode": c.enforcement_mode,
-            "is_active": c.is_active,
-            "status": status,
-            "total_runs": total_runs,
-            "created_at": c.created_at,
-            "pass_rate": pass_rate,
-            "last_run_at": last_at,
-            "last_run_rel": _relative_time(last_at) if last_at else None,
-        })
+        rows.append(
+            {
+                "contract_id": c.contract_id,
+                "title": c.title,
+                "description": c.description,
+                "owner_team": c.owner_team,
+                "enforcement_mode": c.enforcement_mode,
+                "is_active": c.is_active,
+                "status": status,
+                "total_runs": total_runs,
+                "created_at": c.created_at,
+                "pass_rate": pass_rate,
+                "last_run_at": last_at,
+                "last_run_rel": _relative_time(last_at) if last_at else None,
+            }
+        )
 
     if sort == "name":
-        rows.sort(key=lambda x: (x["title"] or "").lower())
+        rows.sort(key=lambda x: str(x.get("title") or "").lower())
     elif sort == "runs":
-        rows.sort(key=lambda x: -x["total_runs"])
+        rows.sort(key=lambda x: -int(x.get("total_runs") or 0))
     elif sort == "health":
-        def _health_key(x: dict) -> tuple:
+
+        def _health_key(x: dict[str, Any]) -> tuple[int, float]:
             order = {"failing": 0, "unknown": 1, "passing": 2}
-            return (order.get(x["status"], 9), -(x["pass_rate"] or 0))
+            st = str(x.get("status") or "")
+            pr = x.get("pass_rate")
+            pr_f = float(pr) if pr is not None else 0.0
+            return (order.get(st, 9), -pr_f)
+
         rows.sort(key=_health_key)
     else:
-        rows.sort(key=lambda x: x["created_at"], reverse=True)
+        rows.sort(
+            key=lambda x: cast(datetime, x["created_at"]),
+            reverse=True,
+        )
 
     teams = await _team_names_for_filter(db)
 
-    return templates.TemplateResponse(request, "contracts_list.html", {
-        "active_page": "Contracts",
-        "contracts": rows,
-        "teams": teams,
-        "q": q,
-        "selected_team": team,
-        "sort": sort,
-    })
+    return templates.TemplateResponse(
+        request,
+        "contracts_list.html",
+        {
+            "active_page": "Contracts",
+            "contracts": rows,
+            "teams": teams,
+            "q": q,
+            "selected_team": team,
+            "sort": sort,
+        },
+    )
 
 
 async def _get_connections(db: AsyncSession) -> list:
@@ -1040,8 +1109,7 @@ async def _all_contract_ids(db: AsyncSession) -> list[dict]:
 async def _fields_by_contract_map(db: AsyncSession) -> dict[str, dict[str, list[str]]]:
     """Build {contract_id: {table: [fields]}} from all active contracts' YAML."""
     result = await db.execute(
-        select(Contract.contract_id, Contract.raw_yaml)
-        .where(Contract.is_active == True)  # noqa: E712
+        select(Contract.contract_id, Contract.raw_yaml).where(Contract.is_active == True)  # noqa: E712
     )
     fbc: dict[str, dict[str, list[str]]] = {}
     for cid, raw in result.all():
@@ -1068,18 +1136,22 @@ async def contract_new(request: Request, db: AsyncSession = Depends(get_db)):
     dep_contracts = await _all_contract_ids(db)
     fbc = await _fields_by_contract_map(db)
     teams, alerting_profiles = await _teams_and_alerting_profiles(db)
-    return templates.TemplateResponse(request, "contract_form.html", {
-        "active_page": "Contracts",
-        "mode": "create",
-        "form": form_data,
-        "raw_yaml": raw_yaml,
-        "errors": [],
-        "connections": connections,
-        "dep_contracts": dep_contracts,
-        "fields_by_contract_json": json.dumps(fbc),
-        "teams": teams,
-        "alerting_profiles": alerting_profiles,
-    })
+    return templates.TemplateResponse(
+        request,
+        "contract_form.html",
+        {
+            "active_page": "Contracts",
+            "mode": "create",
+            "form": form_data,
+            "raw_yaml": raw_yaml,
+            "errors": [],
+            "connections": connections,
+            "dep_contracts": dep_contracts,
+            "fields_by_contract_json": json.dumps(fbc),
+            "teams": teams,
+            "alerting_profiles": alerting_profiles,
+        },
+    )
 
 
 @router.post("/contracts/new", response_class=HTMLResponse)
@@ -1099,18 +1171,22 @@ async def contract_create(request: Request, db: AsyncSession = Depends(get_db)):
             dep_contracts = await _all_contract_ids(db)
             fbc = await _fields_by_contract_map(db)
             teams, alerting_profiles = await _teams_and_alerting_profiles(db)
-            return templates.TemplateResponse(request, "contract_form.html", {
-                "active_page": "Contracts",
-                "mode": "create",
-                "form": _empty_form_data(),
-                "raw_yaml": raw_yaml_input,
-                "errors": errors,
-                "connections": connections,
-                "dep_contracts": dep_contracts,
-                "fields_by_contract_json": json.dumps(fbc),
-                "teams": teams,
-                "alerting_profiles": alerting_profiles,
-            })
+            return templates.TemplateResponse(
+                request,
+                "contract_form.html",
+                {
+                    "active_page": "Contracts",
+                    "mode": "create",
+                    "form": _empty_form_data(),
+                    "raw_yaml": raw_yaml_input,
+                    "errors": errors,
+                    "connections": connections,
+                    "dep_contracts": dep_contracts,
+                    "fields_by_contract_json": json.dumps(fbc),
+                    "teams": teams,
+                    "alerting_profiles": alerting_profiles,
+                },
+            )
         raw_yaml = raw_yaml_input
         form_data = yaml_dict_to_form(doc)
     else:
@@ -1134,9 +1210,7 @@ async def contract_create(request: Request, db: AsyncSession = Depends(get_db)):
     errors.extend(team_errors)
 
     if not errors:
-        existing = await db.execute(
-            select(Contract).where(Contract.contract_id == contract_id)
-        )
+        existing = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
         if existing.scalar_one_or_none():
             errors.append(f"A contract with ID '{contract_id}' already exists.")
 
@@ -1145,18 +1219,22 @@ async def contract_create(request: Request, db: AsyncSession = Depends(get_db)):
         dep_contracts = await _all_contract_ids(db)
         fbc = await _fields_by_contract_map(db)
         teams, alerting_profiles = await _teams_and_alerting_profiles(db)
-        return templates.TemplateResponse(request, "contract_form.html", {
-            "active_page": "Contracts",
-            "mode": "create",
-            "form": form_data,
-            "raw_yaml": raw_yaml,
-            "errors": errors,
-            "connections": connections,
-            "dep_contracts": dep_contracts,
-            "fields_by_contract_json": json.dumps(fbc),
-            "teams": teams,
-            "alerting_profiles": alerting_profiles,
-        })
+        return templates.TemplateResponse(
+            request,
+            "contract_form.html",
+            {
+                "active_page": "Contracts",
+                "mode": "create",
+                "form": form_data,
+                "raw_yaml": raw_yaml,
+                "errors": errors,
+                "connections": connections,
+                "dep_contracts": dep_contracts,
+                "fields_by_contract_json": json.dumps(fbc),
+                "teams": teams,
+                "alerting_profiles": alerting_profiles,
+            },
+        )
 
     alerting_profile_id = await _resolve_alerting_profile_id_from_doc(db, xs)
     await _enrich_doc_x_sraosha(db, doc, team_id, alerting_profile_id)
@@ -1175,24 +1253,27 @@ async def contract_create(request: Request, db: AsyncSession = Depends(get_db)):
     db.add(contract)
     await db.flush()
 
-    return RedirectResponse(
-        url=f"/ui/contracts/{contract_id}", status_code=303
-    )
+    return RedirectResponse(url=f"/ui/contracts/{contract_id}", status_code=303)
 
 
 # ---------------------------------------------------------------------------
 # Discover from Database
 # ---------------------------------------------------------------------------
 
+
 @router.get("/contracts/discover", response_class=HTMLResponse)
 async def discover_form(request: Request, db: AsyncSession = Depends(get_db)):
     """Render the discover-from-database wizard page."""
     teams, alerting_profiles = await _teams_and_alerting_profiles(db)
-    return templates.TemplateResponse(request, "contract_discover.html", {
-        "active_page": "Contracts",
-        "teams": teams,
-        "alerting_profiles": alerting_profiles,
-    })
+    return templates.TemplateResponse(
+        request,
+        "contract_discover.html",
+        {
+            "active_page": "Contracts",
+            "teams": teams,
+            "alerting_profiles": alerting_profiles,
+        },
+    )
 
 
 @router.post("/partials/discover-test", response_class=HTMLResponse)
@@ -1201,24 +1282,25 @@ async def partial_discover_test(request: Request):
     from sraosha.api.introspect import SUPPORTED_TYPES, get_introspector
 
     form = await request.form()
-    server_type = form.get("server_type", "postgres")
+    server_type = _form_text(form.get("server_type"), "postgres")
     params = {
-        "host": form.get("host", ""),
-        "port": form.get("port", ""),
-        "database": form.get("database", ""),
-        "schema": form.get("schema", "public"),
-        "user": form.get("user", ""),
-        "password": form.get("password", ""),
-        "path": form.get("path", ""),
+        "host": _form_text(form.get("host")),
+        "port": _form_text(form.get("port")),
+        "database": _form_text(form.get("database")),
+        "schema": _form_text(form.get("schema"), "public"),
+        "user": _form_text(form.get("user")),
+        "password": _form_text(form.get("password")),
+        "path": _form_text(form.get("path")),
     }
 
     if server_type not in SUPPORTED_TYPES:
         return HTMLResponse(
             f'<div class="text-sm text-red-600 flex items-center gap-2">'
             f'<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
-            f'<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
-            f'Introspection not supported for {server_type}. '
-            f'Supported: {", ".join(SUPPORTED_TYPES)}</div>'
+            f'<path stroke-linecap="round" stroke-linejoin="round" '
+            f'stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+            f"Introspection not supported for {server_type}. "
+            f"Supported: {', '.join(SUPPORTED_TYPES)}</div>"
         )
 
     try:
@@ -1228,23 +1310,27 @@ async def partial_discover_test(request: Request):
     except Exception as exc:
         return HTMLResponse(
             f'<div class="text-sm text-red-600 flex items-center gap-2">'
-            f'<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
-            f'<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
-            f'Connection failed: {exc}</div>'
+            f'<svg class="w-4 h-4 flex-shrink-0" fill="none" '
+            f'stroke="currentColor" viewBox="0 0 24 24">'
+            f'<path stroke-linecap="round" stroke-linejoin="round" '
+            f'stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+            f"Connection failed: {exc}</div>"
         )
 
     if ok:
         return HTMLResponse(
             '<div class="text-sm text-green-600 flex items-center gap-2">'
             '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
-            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>'
-            'Connection successful</div>'
+            '<path stroke-linecap="round" stroke-linejoin="round" '
+            'stroke-width="2" d="M5 13l4 4L19 7"/></svg>'
+            "Connection successful</div>"
         )
     return HTMLResponse(
         '<div class="text-sm text-red-600 flex items-center gap-2">'
         '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
-        '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
-        'Connection test returned false</div>'
+        '<path stroke-linecap="round" stroke-linejoin="round" '
+        'stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>'
+        "Connection test returned false</div>"
     )
 
 
@@ -1254,15 +1340,15 @@ async def partial_discover_tables(request: Request):
     from sraosha.api.introspect import get_introspector
 
     form = await request.form()
-    server_type = form.get("server_type", "postgres")
-    schema = form.get("schema", "public") or "public"
+    server_type = _form_text(form.get("server_type"), "postgres")
+    schema = _form_text(form.get("schema"), "public") or "public"
     params = {
-        "host": form.get("host", ""),
-        "port": form.get("port", ""),
-        "database": form.get("database", ""),
-        "user": form.get("user", ""),
-        "password": form.get("password", ""),
-        "path": form.get("path", ""),
+        "host": _form_text(form.get("host")),
+        "port": _form_text(form.get("port")),
+        "database": _form_text(form.get("database")),
+        "user": _form_text(form.get("user")),
+        "password": _form_text(form.get("password")),
+        "path": _form_text(form.get("path")),
     }
 
     try:
@@ -1270,19 +1356,21 @@ async def partial_discover_tables(request: Request):
         tables = introspector.discover(schema)
         introspector.close()
     except Exception as exc:
-        return HTMLResponse(
-            f'<div class="text-sm text-red-600 p-4">Discovery failed: {exc}</div>'
-        )
+        return HTMLResponse(f'<div class="text-sm text-red-600 p-4">Discovery failed: {exc}</div>')
 
     if not tables:
         return HTMLResponse(
             '<div class="text-sm text-gray-500 p-4">No tables found in this schema.</div>'
         )
 
-    return templates.TemplateResponse(request, "partials/discover_table_list.html", {
-        "tables": tables,
-        "schema": schema,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/discover_table_list.html",
+        {
+            "tables": tables,
+            "schema": schema,
+        },
+    )
 
 
 @router.post("/partials/wizard-discover", response_class=HTMLResponse)
@@ -1297,17 +1385,15 @@ async def partial_wizard_discover(request: Request, db: AsyncSession = Depends(g
     from sraosha.crypto import decrypt
 
     form = await request.form()
-    server_type = form.get("server_type", "postgres")
-    schema = form.get("schema", "public") or "public"
-    connection_id = form.get("connection_id", "")
+    server_type = _form_text(form.get("server_type"), "postgres")
+    schema = _form_text(form.get("schema"), "public") or "public"
+    connection_id = _form_text(form.get("connection_id"))
 
-    params: dict = {}
+    params: dict[str, str] = {}
     if connection_id:
         conn = await db.get(Connection, connection_id)
         if not conn:
-            return HTMLResponse(
-                '<div class="text-sm text-red-600 p-2">Connection not found.</div>'
-            )
+            return HTMLResponse('<div class="text-sm text-red-600 p-2">Connection not found.</div>')
         params["host"] = conn.host or ""
         params["port"] = str(conn.port) if conn.port else ""
         params["database"] = conn.database or ""
@@ -1316,12 +1402,12 @@ async def partial_wizard_discover(request: Request, db: AsyncSession = Depends(g
         params["path"] = conn.path or ""
     else:
         params = {
-            "host": form.get("host", ""),
-            "port": form.get("port", ""),
-            "database": form.get("database", ""),
-            "user": form.get("user", ""),
-            "password": form.get("password", ""),
-            "path": form.get("path", ""),
+            "host": _form_text(form.get("host")),
+            "port": _form_text(form.get("port")),
+            "database": _form_text(form.get("database")),
+            "user": _form_text(form.get("user")),
+            "password": _form_text(form.get("password")),
+            "path": _form_text(form.get("path")),
         }
 
     try:
@@ -1329,9 +1415,7 @@ async def partial_wizard_discover(request: Request, db: AsyncSession = Depends(g
         tables = introspector.discover(schema)
         introspector.close()
     except Exception as exc:
-        return HTMLResponse(
-            f'<div class="text-sm text-red-600 p-4">Discovery failed: {exc}</div>'
-        )
+        return HTMLResponse(f'<div class="text-sm text-red-600 p-4">Discovery failed: {exc}</div>')
 
     if not tables:
         return HTMLResponse(
@@ -1435,8 +1519,9 @@ async def discover_generate(request: Request, db: AsyncSession = Depends(get_db)
 
         from sraosha.api.contract_yaml import dict_to_yaml_string
 
-        info = doc["info"]
-        xs2 = doc.get("x-sraosha", {}) if isinstance(doc.get("x-sraosha"), dict) else {}
+        info = cast(dict[str, Any], doc["info"])
+        xs_raw = doc.get("x-sraosha", {})
+        xs2: dict[str, Any] = xs_raw if isinstance(xs_raw, dict) else {}
         team_res, team_errs = await _resolve_team_id_from_doc(db, xs2, info)
         if team_errs:
             continue
@@ -1444,16 +1529,14 @@ async def discover_generate(request: Request, db: AsyncSession = Depends(get_db)
         await _enrich_doc_x_sraosha(db, doc, team_res, profile_res)
         raw_yaml = dict_to_yaml_string(doc)
 
-        existing = await db.execute(
-            select(Contract).where(Contract.contract_id == contract_id)
-        )
+        existing = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
         if existing.scalar_one_or_none():
             continue
 
         contract = Contract(
             contract_id=contract_id,
             title=title,
-            description=doc["info"]["description"],
+            description=info["description"],
             file_path=f"contracts/{contract_id}.yaml",
             team_id=team_res,
             alerting_profile_id=profile_res,
@@ -1474,9 +1557,12 @@ async def discover_generate(request: Request, db: AsyncSession = Depends(get_db)
 # Run detail
 # ---------------------------------------------------------------------------
 
+
 @router.get("/runs/{run_id}", response_class=HTMLResponse)
 async def run_detail(
-    request: Request, run_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     try:
         uid = uuid_mod.UUID(run_id)
@@ -1508,22 +1594,29 @@ async def run_detail(
                 next_id = ordered[i - 1][0]
             break
 
-    return templates.TemplateResponse(request, "run_detail.html", {
-        "active_page": "Contracts",
-        "run": run,
-        "contract": contract,
-        "prev_run_id": prev_id,
-        "next_run_id": next_id,
-    })
+    return templates.TemplateResponse(
+        request,
+        "run_detail.html",
+        {
+            "active_page": "Contracts",
+            "run": run,
+            "contract": contract,
+            "prev_run_id": prev_id,
+            "next_run_id": next_id,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
 # Contract detail (must be after /contracts/new and /contracts/discover)
 # ---------------------------------------------------------------------------
 
+
 @router.get("/contracts/{contract_id}", response_class=HTMLResponse)
 async def contract_detail(
-    request: Request, contract_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    contract_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Contract)
@@ -1562,21 +1655,27 @@ async def contract_detail(
     except Exception:
         downstream_count = 0
 
-    return templates.TemplateResponse(request, "contract_detail.html", {
-        "active_page": "Contracts",
-        "contract": contract,
-        "contract_id": contract_id,
-        "runs": runs,
-        "parsed_models": parsed_models,
-        "schedule": schedule,
-        "preset_labels": PRESET_LABELS,
-        "downstream_count": downstream_count,
-    })
+    return templates.TemplateResponse(
+        request,
+        "contract_detail.html",
+        {
+            "active_page": "Contracts",
+            "contract": contract,
+            "contract_id": contract_id,
+            "runs": runs,
+            "parsed_models": parsed_models,
+            "schedule": schedule,
+            "preset_labels": PRESET_LABELS,
+            "downstream_count": downstream_count,
+        },
+    )
 
 
 @router.get("/contracts/{contract_id}/edit", response_class=HTMLResponse)
 async def contract_edit_form(
-    request: Request, contract_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    contract_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     """Show the edit form pre-populated from the DB."""
     result = await db.execute(
@@ -1605,29 +1704,33 @@ async def contract_edit_form(
     fbc = await _fields_by_contract_map(db)
     teams, alerting_profiles = await _teams_and_alerting_profiles(db)
 
-    return templates.TemplateResponse(request, "contract_form.html", {
-        "active_page": "Contracts",
-        "mode": "edit",
-        "contract_id": contract_id,
-        "form": form_data,
-        "raw_yaml": contract.raw_yaml,
-        "errors": [],
-        "connections": connections,
-        "dep_contracts": dep_contracts,
-        "fields_by_contract_json": json.dumps(fbc),
-        "teams": teams,
-        "alerting_profiles": alerting_profiles,
-    })
+    return templates.TemplateResponse(
+        request,
+        "contract_form.html",
+        {
+            "active_page": "Contracts",
+            "mode": "edit",
+            "contract_id": contract_id,
+            "form": form_data,
+            "raw_yaml": contract.raw_yaml,
+            "errors": [],
+            "connections": connections,
+            "dep_contracts": dep_contracts,
+            "fields_by_contract_json": json.dumps(fbc),
+            "teams": teams,
+            "alerting_profiles": alerting_profiles,
+        },
+    )
 
 
 @router.post("/contracts/{contract_id}/edit", response_class=HTMLResponse)
 async def contract_update(
-    request: Request, contract_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    contract_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     """Handle contract update from the form."""
-    result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     contract = result.scalar_one_or_none()
     if not contract:
         return HTMLResponse("<h1>Contract not found</h1>", status_code=404)
@@ -1641,24 +1744,32 @@ async def contract_update(
             doc = yaml_string_to_dict(raw_yaml_input)
         except ValueError as exc:
             errors.append(str(exc))
-            form_data = yaml_dict_to_form(yaml_string_to_dict(contract.raw_yaml)) if contract.raw_yaml else _empty_form_data()
+            form_data = (
+                yaml_dict_to_form(yaml_string_to_dict(contract.raw_yaml))
+                if contract.raw_yaml
+                else _empty_form_data()
+            )
             connections = await _get_connections(db)
             dep_contracts = await _all_contract_ids(db)
             fbc = await _fields_by_contract_map(db)
             teams, alerting_profiles = await _teams_and_alerting_profiles(db)
-            return templates.TemplateResponse(request, "contract_form.html", {
-                "active_page": "Contracts",
-                "mode": "edit",
-                "contract_id": contract_id,
-                "form": form_data,
-                "raw_yaml": raw_yaml_input,
-                "errors": errors,
-                "connections": connections,
-                "dep_contracts": dep_contracts,
-                "fields_by_contract_json": json.dumps(fbc),
-                "teams": teams,
-                "alerting_profiles": alerting_profiles,
-            })
+            return templates.TemplateResponse(
+                request,
+                "contract_form.html",
+                {
+                    "active_page": "Contracts",
+                    "mode": "edit",
+                    "contract_id": contract_id,
+                    "form": form_data,
+                    "raw_yaml": raw_yaml_input,
+                    "errors": errors,
+                    "connections": connections,
+                    "dep_contracts": dep_contracts,
+                    "fields_by_contract_json": json.dumps(fbc),
+                    "teams": teams,
+                    "alerting_profiles": alerting_profiles,
+                },
+            )
         raw_yaml = raw_yaml_input
         form_data = yaml_dict_to_form(doc)
     else:
@@ -1683,19 +1794,23 @@ async def contract_update(
         dep_contracts = await _all_contract_ids(db)
         fbc = await _fields_by_contract_map(db)
         teams, alerting_profiles = await _teams_and_alerting_profiles(db)
-        return templates.TemplateResponse(request, "contract_form.html", {
-            "active_page": "Contracts",
-            "mode": "edit",
-            "contract_id": contract_id,
-            "form": form_data,
-            "raw_yaml": raw_yaml,
-            "errors": errors,
-            "connections": connections,
-            "dep_contracts": dep_contracts,
-            "fields_by_contract_json": json.dumps(fbc),
-            "teams": teams,
-            "alerting_profiles": alerting_profiles,
-        })
+        return templates.TemplateResponse(
+            request,
+            "contract_form.html",
+            {
+                "active_page": "Contracts",
+                "mode": "edit",
+                "contract_id": contract_id,
+                "form": form_data,
+                "raw_yaml": raw_yaml,
+                "errors": errors,
+                "connections": connections,
+                "dep_contracts": dep_contracts,
+                "fields_by_contract_json": json.dumps(fbc),
+                "teams": teams,
+                "alerting_profiles": alerting_profiles,
+            },
+        )
 
     alerting_profile_id = await _resolve_alerting_profile_id_from_doc(db, xs)
     await _enrich_doc_x_sraosha(db, doc, team_id, alerting_profile_id)
@@ -1711,19 +1826,17 @@ async def contract_update(
 
     await db.flush()
 
-    return RedirectResponse(
-        url=f"/ui/contracts/{contract_id}", status_code=303
-    )
+    return RedirectResponse(url=f"/ui/contracts/{contract_id}", status_code=303)
 
 
 @router.delete("/contracts/{contract_id}", response_class=HTMLResponse)
 async def contract_delete(
-    request: Request, contract_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    contract_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     """Delete a contract and redirect to the list."""
-    result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     contract = result.scalar_one_or_none()
     if not contract:
         return HTMLResponse("<h1>Contract not found</h1>", status_code=404)
@@ -1739,38 +1852,64 @@ async def contract_delete(
 # htmx partials for contract form
 # ---------------------------------------------------------------------------
 
+
 @router.get("/partials/server-row", response_class=HTMLResponse)
 async def partial_server_row(request: Request, idx: int = Query(0)):
-    return templates.TemplateResponse(request, "partials/contract_server_block.html", {
-        "idx": idx,
-        "server": {
-            "name": "", "type": "postgres", "host": "", "port": "5432",
-            "database": "", "schema": "", "account": "", "warehouse": "",
-            "role": "", "catalog": "", "httpPath": "", "project": "",
-            "dataset": "", "location": "", "path": "",
+    return templates.TemplateResponse(
+        request,
+        "partials/contract_server_block.html",
+        {
+            "idx": idx,
+            "server": {
+                "name": "",
+                "type": "postgres",
+                "host": "",
+                "port": "5432",
+                "database": "",
+                "schema": "",
+                "account": "",
+                "warehouse": "",
+                "role": "",
+                "catalog": "",
+                "httpPath": "",
+                "project": "",
+                "dataset": "",
+                "location": "",
+                "path": "",
+            },
         },
-    })
+    )
 
 
 @router.get("/partials/model-block", response_class=HTMLResponse)
 async def partial_model_block(request: Request, idx: int = Query(0)):
-    return templates.TemplateResponse(request, "partials/contract_field_row.html", {
-        "model_idx": idx,
-        "model": {"name": "", "type": "table", "fields": []},
-        "is_new_model": True,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/contract_field_row.html",
+        {
+            "model_idx": idx,
+            "model": {"name": "", "type": "table", "fields": []},
+            "is_new_model": True,
+        },
+    )
 
 
 @router.get("/partials/field-row", response_class=HTMLResponse)
 async def partial_field_row(
-    request: Request, model_name: str = Query(""), idx: int = Query(0),
+    request: Request,
+    model_name: str = Query(""),
+    idx: int = Query(0),
 ):
-    return templates.TemplateResponse(request, "partials/contract_field_row.html", {
-        "model_idx": idx,
-        "model_name": model_name,
-        "field": {"name": "", "type": "text", "required": False, "unique": False},
-        "is_new_model": False,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/contract_field_row.html",
+        {
+            "model_idx": idx,
+            "model_name": model_name,
+            "field": {"name": "", "type": "text", "required": False, "unique": False},
+            "is_new_model": False,
+        },
+    )
 
 
 @router.post("/partials/yaml-preview", response_class=HTMLResponse)
@@ -1786,10 +1925,14 @@ async def partial_yaml_preview(request: Request, db: AsyncSession = Depends(get_
     except Exception as exc:
         raw_yaml = ""
         error = str(exc)
-    return templates.TemplateResponse(request, "partials/contract_yaml_preview.html", {
-        "raw_yaml": raw_yaml,
-        "error": error,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/contract_yaml_preview.html",
+        {
+            "raw_yaml": raw_yaml,
+            "error": error,
+        },
+    )
 
 
 @router.post("/partials/validate-contract", response_class=HTMLResponse)
@@ -1822,23 +1965,31 @@ async def partial_validate(request: Request, db: AsyncSession = Depends(get_db))
             if not doc.get("models"):
                 errors.append("No models defined")
 
-    return templates.TemplateResponse(request, "partials/contract_validation_result.html", {
-        "errors": errors,
-        "valid": len(errors) == 0,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/contract_validation_result.html",
+        {
+            "errors": errors,
+            "valid": len(errors) == 0,
+        },
+    )
 
 
 @router.get("/partials/delete-modal/{contract_id}", response_class=HTMLResponse)
 async def partial_delete_modal(
-    request: Request, contract_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    contract_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     contract = result.scalar_one_or_none()
-    return templates.TemplateResponse(request, "partials/contract_delete_modal.html", {
-        "contract": contract,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/contract_delete_modal.html",
+        {
+            "contract": contract,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1853,8 +2004,8 @@ async def partial_dq_discover_tables(request: Request, db: AsyncSession = Depend
     from sraosha.crypto import decrypt
 
     form = await request.form()
-    connection_id = form.get("connection_id", "")
-    schema = form.get("schema", "public") or "public"
+    connection_id = _form_text(form.get("connection_id"))
+    schema = _form_text(form.get("schema"), "public") or "public"
 
     if not connection_id:
         return HTMLResponse(
@@ -1884,13 +2035,15 @@ async def partial_dq_discover_tables(request: Request, db: AsyncSession = Depend
         introspector.close()
     except Exception as exc:
         return HTMLResponse(
-            f'<div class="text-sm text-red-600 dark:text-red-400 p-4">Discovery failed: {exc}</div>',
+            f'<div class="text-sm text-red-600 dark:text-red-400 p-4">'
+            f"Discovery failed: {exc}</div>",
             status_code=200,
         )
 
     if not tables:
         return HTMLResponse(
-            '<div class="text-sm text-gray-500 dark:text-gray-400 p-4">No tables found in this schema.</div>',
+            '<div class="text-sm text-gray-500 dark:text-gray-400 p-4">'
+            "No tables found in this schema.</div>",
             status_code=200,
         )
 
@@ -1902,19 +2055,37 @@ async def partial_dq_discover_tables(request: Request, db: AsyncSession = Depend
 
 
 _DQ_TYPE_MAP: dict[str, str] = {
-    "int": "integer", "int2": "integer", "int4": "integer", "int8": "integer",
-    "smallint": "integer", "bigint": "integer", "serial": "integer",
-    "char": "text", "varchar": "text", "text": "text", "character varying": "text",
-    "float": "float", "float4": "float", "float8": "float", "double": "float",
-    "double precision": "float", "numeric": "float", "decimal": "float", "real": "float",
-    "bool": "boolean", "boolean": "boolean",
-    "timestamp": "timestamp", "timestamptz": "timestamp",
+    "int": "integer",
+    "int2": "integer",
+    "int4": "integer",
+    "int8": "integer",
+    "smallint": "integer",
+    "bigint": "integer",
+    "serial": "integer",
+    "char": "text",
+    "varchar": "text",
+    "text": "text",
+    "character varying": "text",
+    "float": "float",
+    "float4": "float",
+    "float8": "float",
+    "double": "float",
+    "double precision": "float",
+    "numeric": "float",
+    "decimal": "float",
+    "real": "float",
+    "bool": "boolean",
+    "boolean": "boolean",
+    "timestamp": "timestamp",
+    "timestamptz": "timestamp",
     "timestamp without time zone": "timestamp",
     "timestamp with time zone": "timestamp",
     "date": "date",
-    "json": "json", "jsonb": "json",
+    "json": "json",
+    "jsonb": "json",
     "uuid": "uuid",
-    "bytea": "binary", "blob": "binary",
+    "bytea": "binary",
+    "blob": "binary",
 }
 
 
@@ -1935,8 +2106,8 @@ async def partial_dq_discover_tables_json(request: Request, db: AsyncSession = D
     from sraosha.crypto import decrypt
 
     form = await request.form()
-    connection_id = form.get("connection_id", "")
-    schema = form.get("schema", "public") or "public"
+    connection_id = _form_text(form.get("connection_id"))
+    schema = _form_text(form.get("schema"), "public") or "public"
 
     if not connection_id:
         return JSONResponse({"error": "No connection selected."}, status_code=400)
@@ -1967,17 +2138,21 @@ async def partial_dq_discover_tables_json(request: Request, db: AsyncSession = D
     out = []
     for t in tables:
         cols = []
-        for c in (t.get("columns") or []):
-            cols.append({
-                "column_name": c["column_name"],
-                "data_type": _normalize_col_type(c.get("data_type", "text")),
-                "is_nullable": c.get("is_nullable", True),
-            })
-        out.append({
-            "table_name": t["table_name"],
-            "table_type": t.get("table_type", "table"),
-            "columns": cols,
-        })
+        for c in t.get("columns") or []:
+            cols.append(
+                {
+                    "column_name": c["column_name"],
+                    "data_type": _normalize_col_type(c.get("data_type", "text")),
+                    "is_nullable": c.get("is_nullable", True),
+                }
+            )
+        out.append(
+            {
+                "table_name": t["table_name"],
+                "table_type": t.get("table_type", "table"),
+                "columns": cols,
+            }
+        )
 
     return JSONResponse({"schema": schema, "tables": out})
 
@@ -1992,11 +2167,11 @@ async def partial_dq_generate_check(request: Request):
     log = logging.getLogger("sraosha.dq.generate")
 
     form = await request.form()
-    template_key = (form.get("template_key") or "").strip()
-    table = (form.get("table") or "").strip()
-    column_raw = form.get("column")
-    column = (str(column_raw).strip() if column_raw not in (None, "") else None) or None
-    params_raw = form.get("params")
+    template_key = (_form_text(form.get("template_key")) or "").strip()
+    table = (_form_text(form.get("table")) or "").strip()
+    column_raw = _form_text(form.get("column"))
+    column = (column_raw.strip() if column_raw not in ("",) else None) or None
+    params_raw = _form_text(form.get("params")) or None
 
     tmpl = DQ_CHECK_TEMPLATES.get(template_key)
     if not tmpl or not table:
@@ -2066,9 +2241,7 @@ async def dq_list_page(
     check_ids = list(seen.keys())
     sched_map: dict[uuid_mod.UUID, DQSchedule] = {}
     if check_ids:
-        sr = await db.execute(
-            select(DQSchedule).where(DQSchedule.dq_check_id.in_(check_ids))
-        )
+        sr = await db.execute(select(DQSchedule).where(DQSchedule.dq_check_id.in_(check_ids)))
         for s in sr.scalars().all():
             sched_map[s.dq_check_id] = s
 
@@ -2111,36 +2284,42 @@ async def dq_list_page(
         if sched and sched.is_enabled and sched.next_run_at:
             next_run_disp = sched.next_run_at.strftime("%Y-%m-%d %H:%M UTC")
 
-        checks_out.append({
-            "id": str(check.id),
-            "name": check.name,
-            "description": check.description or "",
-            "latest_status": st or "unknown",
-            "connection_name": conn.name if conn else "—",
-            "connection_type": conn.server_type if conn else "—",
-            "tables": list(check.tables or []),
-            "run_count": int(cnt or 0),
-            "last_run_rel": _relative_time(latest.run_at) if latest else None,
-            "next_run_at": next_run_disp,
-        })
+        checks_out.append(
+            {
+                "id": str(check.id),
+                "name": check.name,
+                "description": check.description or "",
+                "latest_status": st or "unknown",
+                "connection_name": conn.name if conn else "—",
+                "connection_type": conn.server_type if conn else "—",
+                "tables": list(check.tables or []),
+                "run_count": int(cnt or 0),
+                "last_run_rel": _relative_time(latest.run_at) if latest else None,
+                "next_run_at": next_run_disp,
+            }
+        )
 
     checks_out.sort(key=lambda x: (x["name"] or "").lower())
 
-    return templates.TemplateResponse(request, "dq_list.html", {
-        "active_page": "Data Quality",
-        "summary": {
-            "total_checks": total_checks,
-            "healthy": healthy,
-            "warning": warning,
-            "failed": failed,
-            "overall_pass_rate": overall_pass_rate,
+    return templates.TemplateResponse(
+        request,
+        "dq_list.html",
+        {
+            "active_page": "Data Quality",
+            "summary": {
+                "total_checks": total_checks,
+                "healthy": healthy,
+                "warning": warning,
+                "failed": failed,
+                "overall_pass_rate": overall_pass_rate,
+            },
+            "checks": checks_out,
+            "filter_status": filter_status,
+            "search_query": q,
+            "selected_connection_id": selected_connection_id,
+            "connections": await _get_connections(db),
         },
-        "checks": checks_out,
-        "filter_status": filter_status,
-        "search_query": q,
-        "selected_connection_id": selected_connection_id,
-        "connections": await _get_connections(db),
-    })
+    )
 
 
 @router.get("/data-quality/new", response_class=HTMLResponse)
@@ -2163,19 +2342,23 @@ async def dq_new_form(request: Request, db: AsyncSession = Depends(get_db)):
         "alerting_profile_id": "",
     }
     teams, alerting_profiles = await _teams_and_alerting_profiles(db)
-    return templates.TemplateResponse(request, "dq_wizard.html", {
-        "active_page": "Data Quality",
-        "is_edit": False,
-        "check": None,
-        "form_json": json.dumps(form_data),
-        "check_templates_json": json.dumps(_dq_templates_for_js()),
-        "connections": connections,
-        "teams": teams,
-        "alerting_profiles": alerting_profiles,
-        "preset_labels": PRESET_LABELS,
-        "soda_connector_types": sorted(SODA_CONNECTOR_TYPES),
-        "errors": [],
-    })
+    return templates.TemplateResponse(
+        request,
+        "dq_wizard.html",
+        {
+            "active_page": "Data Quality",
+            "is_edit": False,
+            "check": None,
+            "form_json": json.dumps(form_data),
+            "check_templates_json": json.dumps(_dq_templates_for_js()),
+            "connections": connections,
+            "teams": teams,
+            "alerting_profiles": alerting_profiles,
+            "preset_labels": PRESET_LABELS,
+            "soda_connector_types": sorted(SODA_CONNECTOR_TYPES),
+            "errors": [],
+        },
+    )
 
 
 @router.post("/data-quality/create", response_class=HTMLResponse)
@@ -2258,19 +2441,23 @@ async def dq_create(request: Request, db: AsyncSession = Depends(get_db)):
             "team_id": str(team_id) if team_id else "",
             "alerting_profile_id": str(alerting_profile_id) if alerting_profile_id else "",
         }
-        return templates.TemplateResponse(request, "dq_wizard.html", {
-            "active_page": "Data Quality",
-            "is_edit": False,
-            "check": None,
-            "form_json": json.dumps(form_data),
-            "check_templates_json": json.dumps(_dq_templates_for_js()),
-            "connections": connections,
-            "teams": teams_ctx,
-            "alerting_profiles": profiles_ctx,
-            "preset_labels": PRESET_LABELS,
-            "soda_connector_types": sorted(SODA_CONNECTOR_TYPES),
-            "errors": error_list,
-        })
+        return templates.TemplateResponse(
+            request,
+            "dq_wizard.html",
+            {
+                "active_page": "Data Quality",
+                "is_edit": False,
+                "check": None,
+                "form_json": json.dumps(form_data),
+                "check_templates_json": json.dumps(_dq_templates_for_js()),
+                "connections": connections,
+                "teams": teams_ctx,
+                "alerting_profiles": profiles_ctx,
+                "preset_labels": PRESET_LABELS,
+                "soda_connector_types": sorted(SODA_CONNECTOR_TYPES),
+                "errors": error_list,
+            },
+        )
 
     if errors:
         return _error_response(errors)
@@ -2298,13 +2485,15 @@ async def dq_create(request: Request, db: AsyncSession = Depends(get_db)):
 
     if schedule_enabled:
         nr = _compute_next_run(interval_preset, cron_expression)
-        db.add(DQSchedule(
-            dq_check_id=check.id,
-            is_enabled=True,
-            interval_preset=interval_preset,
-            cron_expression=cron_expression,
-            next_run_at=nr,
-        ))
+        db.add(
+            DQSchedule(
+                dq_check_id=check.id,
+                is_enabled=True,
+                interval_preset=interval_preset,
+                cron_expression=cron_expression,
+                next_run_at=nr,
+            )
+        )
         await db.flush()
 
     if run_now:
@@ -2318,7 +2507,9 @@ async def dq_create(request: Request, db: AsyncSession = Depends(get_db)):
 
 @router.get("/data-quality/{check_id}", response_class=HTMLResponse)
 async def dq_detail_page(
-    request: Request, check_id: uuid_mod.UUID, db: AsyncSession = Depends(get_db),
+    request: Request,
+    check_id: uuid_mod.UUID,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(DQCheck).where(DQCheck.id == check_id))
     check = result.scalar_one_or_none()
@@ -2337,9 +2528,7 @@ async def dq_detail_page(
 
     latest = runs[0] if runs else None
 
-    sched_result = await db.execute(
-        select(DQSchedule).where(DQSchedule.dq_check_id == check_id)
-    )
+    sched_result = await db.execute(select(DQSchedule).where(DQSchedule.dq_check_id == check_id))
     schedule = sched_result.scalar_one_or_none()
 
     total_runs = await db.scalar(
@@ -2362,39 +2551,43 @@ async def dq_detail_page(
     chart_warned = [r.checks_warned for r in chart_runs]
     chart_failed = [r.checks_failed for r in chart_runs]
 
-    return templates.TemplateResponse(request, "dq_detail.html", {
-        "active_page": "Data Quality",
-        "check": check,
-        "check_id": str(check.id),
-        "connection": conn,
-        "runs": runs,
-        "latest_run": latest,
-        "schedule": schedule,
-        "stats": {
-            "pass_rate": pass_rate,
-            "total_runs": total_runs,
-            "avg_duration_ms": avg_duration_ms,
+    return templates.TemplateResponse(
+        request,
+        "dq_detail.html",
+        {
+            "active_page": "Data Quality",
+            "check": check,
+            "check_id": str(check.id),
+            "connection": conn,
+            "runs": runs,
+            "latest_run": latest,
+            "schedule": schedule,
+            "stats": {
+                "pass_rate": pass_rate,
+                "total_runs": total_runs,
+                "avg_duration_ms": avg_duration_ms,
+            },
+            "chart_labels": chart_labels,
+            "chart_passed": chart_passed,
+            "chart_warned": chart_warned,
+            "chart_failed": chart_failed,
+            "preset_labels": PRESET_LABELS,
         },
-        "chart_labels": chart_labels,
-        "chart_passed": chart_passed,
-        "chart_warned": chart_warned,
-        "chart_failed": chart_failed,
-        "preset_labels": PRESET_LABELS,
-    })
+    )
 
 
 @router.get("/data-quality/{check_id}/edit", response_class=HTMLResponse)
 async def dq_edit_form(
-    request: Request, check_id: uuid_mod.UUID, db: AsyncSession = Depends(get_db),
+    request: Request,
+    check_id: uuid_mod.UUID,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(DQCheck).where(DQCheck.id == check_id))
     check = result.scalar_one_or_none()
     if not check:
         return HTMLResponse("<h1>Check not found</h1>", status_code=404)
 
-    sched_result = await db.execute(
-        select(DQSchedule).where(DQSchedule.dq_check_id == check_id)
-    )
+    sched_result = await db.execute(select(DQSchedule).where(DQSchedule.dq_check_id == check_id))
     schedule = sched_result.scalar_one_or_none()
 
     tables = list(check.tables or [])
@@ -2416,30 +2609,34 @@ async def dq_edit_form(
         "run_now": False,
         "schema": "public",
         "team_id": str(check.team_id) if check.team_id else "",
-        "alerting_profile_id": str(check.alerting_profile_id)
-        if check.alerting_profile_id
-        else "",
+        "alerting_profile_id": str(check.alerting_profile_id) if check.alerting_profile_id else "",
     }
 
     teams, alerting_profiles = await _teams_and_alerting_profiles(db)
-    return templates.TemplateResponse(request, "dq_wizard.html", {
-        "active_page": "Data Quality",
-        "is_edit": True,
-        "check": check,
-        "form_json": json.dumps(form_data),
-        "check_templates_json": json.dumps(_dq_templates_for_js()),
-        "connections": await _get_connections(db),
-        "teams": teams,
-        "alerting_profiles": alerting_profiles,
-        "preset_labels": PRESET_LABELS,
-        "soda_connector_types": sorted(SODA_CONNECTOR_TYPES),
-        "errors": [],
-    })
+    return templates.TemplateResponse(
+        request,
+        "dq_wizard.html",
+        {
+            "active_page": "Data Quality",
+            "is_edit": True,
+            "check": check,
+            "form_json": json.dumps(form_data),
+            "check_templates_json": json.dumps(_dq_templates_for_js()),
+            "connections": await _get_connections(db),
+            "teams": teams,
+            "alerting_profiles": alerting_profiles,
+            "preset_labels": PRESET_LABELS,
+            "soda_connector_types": sorted(SODA_CONNECTOR_TYPES),
+            "errors": [],
+        },
+    )
 
 
 @router.post("/data-quality/{check_id}/update", response_class=HTMLResponse)
 async def dq_update(
-    request: Request, check_id: uuid_mod.UUID, db: AsyncSession = Depends(get_db),
+    request: Request,
+    check_id: uuid_mod.UUID,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(DQCheck).where(DQCheck.id == check_id))
     check = result.scalar_one_or_none()
@@ -2525,27 +2722,29 @@ async def dq_update(
             "team_id": str(team_id) if team_id else "",
             "alerting_profile_id": str(alerting_profile_id) if alerting_profile_id else "",
         }
-        return templates.TemplateResponse(request, "dq_wizard.html", {
-            "active_page": "Data Quality",
-            "is_edit": True,
-            "check": check,
-            "form_json": json.dumps(form_data),
-            "check_templates_json": json.dumps(_dq_templates_for_js()),
-            "connections": connections,
-            "teams": teams_ctx,
-            "alerting_profiles": profiles_ctx,
-            "preset_labels": PRESET_LABELS,
-            "soda_connector_types": sorted(SODA_CONNECTOR_TYPES),
-            "errors": error_list,
-        })
+        return templates.TemplateResponse(
+            request,
+            "dq_wizard.html",
+            {
+                "active_page": "Data Quality",
+                "is_edit": True,
+                "check": check,
+                "form_json": json.dumps(form_data),
+                "check_templates_json": json.dumps(_dq_templates_for_js()),
+                "connections": connections,
+                "teams": teams_ctx,
+                "alerting_profiles": profiles_ctx,
+                "preset_labels": PRESET_LABELS,
+                "soda_connector_types": sorted(SODA_CONNECTOR_TYPES),
+                "errors": error_list,
+            },
+        )
 
     if errors:
         return _error_response(errors)
 
     if name != check.name:
-        dup = await db.execute(
-            select(DQCheck).where(DQCheck.name == name, DQCheck.id != check_id)
-        )
+        dup = await db.execute(select(DQCheck).where(DQCheck.name == name, DQCheck.id != check_id))
         if dup.scalar_one_or_none():
             return _error_response(["A check with this name already exists."])
 
@@ -2561,9 +2760,7 @@ async def dq_update(
     check.check_categories = list(cats)
     check.updated_at = datetime.now(timezone.utc)
 
-    sched_result = await db.execute(
-        select(DQSchedule).where(DQSchedule.dq_check_id == check_id)
-    )
+    sched_result = await db.execute(select(DQSchedule).where(DQSchedule.dq_check_id == check_id))
     schedule = sched_result.scalar_one_or_none()
 
     if schedule_enabled:
@@ -2575,13 +2772,15 @@ async def dq_update(
             schedule.next_run_at = nr
             schedule.updated_at = datetime.now(timezone.utc)
         else:
-            db.add(DQSchedule(
-                dq_check_id=check.id,
-                is_enabled=True,
-                interval_preset=interval_preset,
-                cron_expression=cron_expression,
-                next_run_at=nr,
-            ))
+            db.add(
+                DQSchedule(
+                    dq_check_id=check.id,
+                    is_enabled=True,
+                    interval_preset=interval_preset,
+                    cron_expression=cron_expression,
+                    next_run_at=nr,
+                )
+            )
     elif schedule:
         await db.delete(schedule)
 
@@ -2592,7 +2791,9 @@ async def dq_update(
 
 @router.post("/data-quality/{check_id}/run", response_class=HTMLResponse)
 async def dq_trigger_run(
-    request: Request, check_id: uuid_mod.UUID, db: AsyncSession = Depends(get_db),
+    request: Request,
+    check_id: uuid_mod.UUID,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(DQCheck).where(DQCheck.id == check_id))
     if not result.scalar_one_or_none():
@@ -2601,19 +2802,23 @@ async def dq_trigger_run(
     return HTMLResponse(
         "",
         headers={
-            "HX-Trigger": json.dumps({
-                "showToast": {
-                    "message": "Data quality check queued",
-                    "type": "success",
-                },
-            }),
+            "HX-Trigger": json.dumps(
+                {
+                    "showToast": {
+                        "message": "Data quality check queued",
+                        "type": "success",
+                    },
+                }
+            ),
         },
     )
 
 
 @router.post("/data-quality/{check_id}/delete", response_class=HTMLResponse)
 async def dq_delete(
-    request: Request, check_id: uuid_mod.UUID, db: AsyncSession = Depends(get_db),
+    request: Request,
+    check_id: uuid_mod.UUID,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(DQCheck).where(DQCheck.id == check_id))
     check = result.scalar_one_or_none()
@@ -2650,16 +2855,22 @@ async def dq_run_detail(
     if not run:
         return HTMLResponse("<h1>Run not found</h1>", status_code=404)
 
-    return templates.TemplateResponse(request, "dq_run_detail.html", {
-        "active_page": "Data Quality",
-        "check": dq_check,
-        "run": run,
-    })
+    return templates.TemplateResponse(
+        request,
+        "dq_run_detail.html",
+        {
+            "active_page": "Data Quality",
+            "check": dq_check,
+            "run": run,
+        },
+    )
 
 
 @router.post("/data-quality/{check_id}/schedule", response_class=HTMLResponse)
 async def dq_upsert_schedule(
-    request: Request, check_id: uuid_mod.UUID, db: AsyncSession = Depends(get_db),
+    request: Request,
+    check_id: uuid_mod.UUID,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(DQCheck).where(DQCheck.id == check_id))
     check = result.scalar_one_or_none()
@@ -2667,16 +2878,16 @@ async def dq_upsert_schedule(
         return HTMLResponse("Not found", status_code=404)
 
     form = await request.form()
-    raw_preset = form.get("preset") or form.get("interval_preset") or "daily"
-    interval_preset = raw_preset.strip() if isinstance(raw_preset, str) else str(raw_preset)
-    cron_expression = (form.get("cron_expression") or "").strip() or None
+    raw_preset = (
+        _form_text(form.get("preset")) or _form_text(form.get("interval_preset")) or "daily"
+    )
+    interval_preset = raw_preset.strip()
+    cron_expression = (_form_text(form.get("cron_expression")) or "").strip() or None
     is_enabled = form.get("is_enabled") == "on"
 
     nr = _compute_next_run(interval_preset, cron_expression)
 
-    sched_result = await db.execute(
-        select(DQSchedule).where(DQSchedule.dq_check_id == check_id)
-    )
+    sched_result = await db.execute(select(DQSchedule).where(DQSchedule.dq_check_id == check_id))
     schedule = sched_result.scalar_one_or_none()
 
     if schedule:
@@ -2698,34 +2909,42 @@ async def dq_upsert_schedule(
     await db.flush()
     await db.refresh(schedule)
 
-    return templates.TemplateResponse(request, "partials/dq_schedule_card.html", {
-        "check_id": str(check_id),
-        "schedule": schedule,
-        "preset_labels": PRESET_LABELS,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/dq_schedule_card.html",
+        {
+            "check_id": str(check_id),
+            "schedule": schedule,
+            "preset_labels": PRESET_LABELS,
+        },
+    )
 
 
 @router.delete("/data-quality/{check_id}/schedule", response_class=HTMLResponse)
 async def dq_delete_schedule(
-    request: Request, check_id: uuid_mod.UUID, db: AsyncSession = Depends(get_db),
+    request: Request,
+    check_id: uuid_mod.UUID,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(DQCheck).where(DQCheck.id == check_id))
     if not result.scalar_one_or_none():
         return HTMLResponse("Not found", status_code=404)
 
-    sched_result = await db.execute(
-        select(DQSchedule).where(DQSchedule.dq_check_id == check_id)
-    )
+    sched_result = await db.execute(select(DQSchedule).where(DQSchedule.dq_check_id == check_id))
     schedule = sched_result.scalar_one_or_none()
     if schedule:
         await db.delete(schedule)
         await db.flush()
 
-    return templates.TemplateResponse(request, "partials/dq_schedule_card.html", {
-        "check_id": str(check_id),
-        "schedule": None,
-        "preset_labels": PRESET_LABELS,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/dq_schedule_card.html",
+        {
+            "check_id": str(check_id),
+            "schedule": None,
+            "preset_labels": PRESET_LABELS,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2788,22 +3007,26 @@ async def schedules_page(
         result = await db.execute(query)
         for sched, title, owner_team in result.all():
             last_status = status_map.get(sched.contract_id)
-            items.append({
-                "schedule_type": "contract",
-                "id": sched.id,
-                "contract_id": sched.contract_id,
-                "contract_title": title,
-                "dq_check_id": None,
-                "dq_check_name": None,
-                "owner_team": owner_team,
-                "is_enabled": sched.is_enabled,
-                "interval_preset": sched.interval_preset,
-                "interval_label": PRESET_LABELS.get(sched.interval_preset, sched.interval_preset),
-                "cron_expression": sched.cron_expression,
-                "next_run_at": sched.next_run_at,
-                "last_run_at": sched.last_run_at,
-                "last_run_status": last_status,
-            })
+            items.append(
+                {
+                    "schedule_type": "contract",
+                    "id": sched.id,
+                    "contract_id": sched.contract_id,
+                    "contract_title": title,
+                    "dq_check_id": None,
+                    "dq_check_name": None,
+                    "owner_team": owner_team,
+                    "is_enabled": sched.is_enabled,
+                    "interval_preset": sched.interval_preset,
+                    "interval_label": PRESET_LABELS.get(
+                        sched.interval_preset, sched.interval_preset
+                    ),
+                    "cron_expression": sched.cron_expression,
+                    "next_run_at": sched.next_run_at,
+                    "last_run_at": sched.last_run_at,
+                    "last_run_status": last_status,
+                }
+            )
 
     if type_filter in ("all", "data_quality"):
         dq_query = (
@@ -2815,22 +3038,26 @@ async def schedules_page(
         dq_result = await db.execute(dq_query)
         for sched, check in dq_result.all():
             last_st = dq_status_map.get(check.id)
-            items.append({
-                "schedule_type": "data_quality",
-                "id": sched.id,
-                "contract_id": None,
-                "contract_title": None,
-                "dq_check_id": check.id,
-                "dq_check_name": check.name,
-                "owner_team": check.owner_team,
-                "is_enabled": sched.is_enabled,
-                "interval_preset": sched.interval_preset,
-                "interval_label": PRESET_LABELS.get(sched.interval_preset, sched.interval_preset),
-                "cron_expression": sched.cron_expression,
-                "next_run_at": sched.next_run_at,
-                "last_run_at": sched.last_run_at,
-                "last_run_status": last_st,
-            })
+            items.append(
+                {
+                    "schedule_type": "data_quality",
+                    "id": sched.id,
+                    "contract_id": None,
+                    "contract_title": None,
+                    "dq_check_id": check.id,
+                    "dq_check_name": check.name,
+                    "owner_team": check.owner_team,
+                    "is_enabled": sched.is_enabled,
+                    "interval_preset": sched.interval_preset,
+                    "interval_label": PRESET_LABELS.get(
+                        sched.interval_preset, sched.interval_preset
+                    ),
+                    "cron_expression": sched.cron_expression,
+                    "next_run_at": sched.next_run_at,
+                    "last_run_at": sched.last_run_at,
+                    "last_run_status": last_st,
+                }
+            )
 
     if type_filter == "all":
         min_utc = datetime.min.replace(tzinfo=timezone.utc)
@@ -2841,17 +3068,23 @@ async def schedules_page(
 
         items.sort(key=_sort_key)
 
-    return templates.TemplateResponse(request, "schedules.html", {
-        "active_page": "Schedules",
-        "schedules": items,
-        "preset_labels": PRESET_LABELS,
-        "filter_type": type_filter,
-    })
+    return templates.TemplateResponse(
+        request,
+        "schedules.html",
+        {
+            "active_page": "Schedules",
+            "schedules": items,
+            "preset_labels": PRESET_LABELS,
+            "filter_type": type_filter,
+        },
+    )
 
 
 @router.post("/schedules/{schedule_id}/toggle", response_class=HTMLResponse)
 async def toggle_schedule_enabled(
-    request: Request, schedule_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    schedule_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     try:
         uid = uuid_mod.UUID(schedule_id)
@@ -2863,19 +3096,22 @@ async def toggle_schedule_enabled(
     sched.is_enabled = not sched.is_enabled
     if sched.is_enabled:
         sched.next_run_at = _compute_next_run_dt(
-            sched.interval_preset, sched.cron_expression,
+            sched.interval_preset,
+            sched.cron_expression,
         )
     sched.updated_at = datetime.now(timezone.utc)
     await db.flush()
     return HTMLResponse(
         "",
         headers={
-            "HX-Trigger": json.dumps({
-                "showToast": {
-                    "message": "Schedule " + ("enabled" if sched.is_enabled else "paused"),
-                    "type": "success",
-                },
-            }),
+            "HX-Trigger": json.dumps(
+                {
+                    "showToast": {
+                        "message": "Schedule " + ("enabled" if sched.is_enabled else "paused"),
+                        "type": "success",
+                    },
+                }
+            ),
             "HX-Redirect": "/ui/schedules",
         },
     )
@@ -2883,12 +3119,14 @@ async def toggle_schedule_enabled(
 
 @router.post("/contracts/{contract_id}/schedule", response_class=HTMLResponse)
 async def dashboard_upsert_schedule(
-    request: Request, contract_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    contract_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     form = await request.form()
-    interval_preset = form.get("interval_preset", "daily")
-    cron_expression = form.get("cron_expression", "").strip() or None
-    is_enabled = form.get("is_enabled", "on") == "on"
+    interval_preset = _form_text(form.get("interval_preset"), "daily")
+    cron_expression = (_form_text(form.get("cron_expression")) or "").strip() or None
+    is_enabled = _form_text(form.get("is_enabled"), "on") == "on"
 
     result = await db.execute(
         select(ValidationSchedule).where(ValidationSchedule.contract_id == contract_id)
@@ -2915,16 +3153,22 @@ async def dashboard_upsert_schedule(
     await db.flush()
     await db.refresh(schedule)
 
-    return templates.TemplateResponse(request, "partials/contract_schedule_card.html", {
-        "contract_id": contract_id,
-        "schedule": schedule,
-        "preset_labels": PRESET_LABELS,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/contract_schedule_card.html",
+        {
+            "contract_id": contract_id,
+            "schedule": schedule,
+            "preset_labels": PRESET_LABELS,
+        },
+    )
 
 
 @router.delete("/contracts/{contract_id}/schedule", response_class=HTMLResponse)
 async def dashboard_delete_schedule(
-    request: Request, contract_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    contract_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(ValidationSchedule).where(ValidationSchedule.contract_id == contract_id)
@@ -2933,85 +3177,112 @@ async def dashboard_delete_schedule(
     if schedule:
         await db.delete(schedule)
 
-    return templates.TemplateResponse(request, "partials/contract_schedule_card.html", {
-        "contract_id": contract_id,
-        "schedule": None,
-        "preset_labels": PRESET_LABELS,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/contract_schedule_card.html",
+        {
+            "contract_id": contract_id,
+            "schedule": None,
+            "preset_labels": PRESET_LABELS,
+        },
+    )
 
 
 @router.get("/partials/schedule-card/{contract_id}", response_class=HTMLResponse)
 async def partial_schedule_card(
-    request: Request, contract_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    contract_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(ValidationSchedule).where(ValidationSchedule.contract_id == contract_id)
     )
     schedule = result.scalar_one_or_none()
 
-    return templates.TemplateResponse(request, "partials/contract_schedule_card.html", {
-        "contract_id": contract_id,
-        "schedule": schedule,
-        "preset_labels": PRESET_LABELS,
-    })
+    return templates.TemplateResponse(
+        request,
+        "partials/contract_schedule_card.html",
+        {
+            "contract_id": contract_id,
+            "schedule": schedule,
+            "preset_labels": PRESET_LABELS,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
 # Settings: Teams & Alerting
 # ---------------------------------------------------------------------------
 
+
 @router.get("/settings/teams", response_class=HTMLResponse)
 async def settings_teams_list(request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Team).order_by(Team.name))
     teams = list(result.scalars().all())
-    return templates.TemplateResponse(request, "settings_teams_list.html", {
-        "active_page": "Teams",
-        "teams": teams,
-    })
+    return templates.TemplateResponse(
+        request,
+        "settings_teams_list.html",
+        {
+            "active_page": "Teams",
+            "teams": teams,
+        },
+    )
 
 
 @router.get("/settings/teams/new", response_class=HTMLResponse)
 async def settings_team_new_form(request: Request, db: AsyncSession = Depends(get_db)):
     _, profiles = await _teams_and_alerting_profiles(db)
-    return templates.TemplateResponse(request, "settings_team_form.html", {
-        "active_page": "Teams",
-        "mode": "create",
-        "form": {"name": "", "default_alerting_profile_id": ""},
-        "errors": [],
-        "alerting_profiles": profiles,
-    })
+    return templates.TemplateResponse(
+        request,
+        "settings_team_form.html",
+        {
+            "active_page": "Teams",
+            "mode": "create",
+            "form": {"name": "", "default_alerting_profile_id": ""},
+            "errors": [],
+            "alerting_profiles": profiles,
+        },
+    )
 
 
 @router.post("/settings/teams/new", response_class=HTMLResponse)
 async def settings_team_create(request: Request, db: AsyncSession = Depends(get_db)):
     form = await request.form()
-    name = (form.get("name") or "").strip()
-    dap = _parse_uuid(form.get("default_alerting_profile_id"))
+    name = (_form_text(form.get("name")) or "").strip()
+    dap = _parse_uuid(_form_text(form.get("default_alerting_profile_id")))
     errors: list[str] = []
     if not name:
         errors.append("Name is required.")
     if errors:
         _, profiles = await _teams_and_alerting_profiles(db)
-        return templates.TemplateResponse(request, "settings_team_form.html", {
-            "active_page": "Teams",
-            "mode": "create",
-            "form": {"name": name, "default_alerting_profile_id": str(dap) if dap else ""},
-            "errors": errors,
-            "alerting_profiles": profiles,
-        })
+        return templates.TemplateResponse(
+            request,
+            "settings_team_form.html",
+            {
+                "active_page": "Teams",
+                "mode": "create",
+                "form": {"name": name, "default_alerting_profile_id": str(dap) if dap else ""},
+                "errors": errors,
+                "alerting_profiles": profiles,
+            },
+        )
     team = Team(name=name, default_alerting_profile_id=dap)
     db.add(team)
     try:
         await db.flush()
     except Exception:
         _, profiles = await _teams_and_alerting_profiles(db)
-        return templates.TemplateResponse(request, "settings_team_form.html", {
-            "active_page": "Teams",
-            "mode": "create",
-            "form": {"name": name, "default_alerting_profile_id": str(dap) if dap else ""},
-            "errors": ["A team with this name may already exist."],
-            "alerting_profiles": profiles,
-        })
+        return templates.TemplateResponse(
+            request,
+            "settings_team_form.html",
+            {
+                "active_page": "Teams",
+                "mode": "create",
+                "form": {"name": name, "default_alerting_profile_id": str(dap) if dap else ""},
+                "errors": ["A team with this name may already exist."],
+                "alerting_profiles": profiles,
+            },
+        )
     return RedirectResponse("/ui/settings/teams", status_code=303)
 
 
@@ -3026,25 +3297,27 @@ async def settings_team_edit_form(
     if not team:
         return HTMLResponse("Not found", status_code=404)
     _, profiles = await _teams_and_alerting_profiles(db)
-    return templates.TemplateResponse(request, "settings_team_form.html", {
-        "active_page": "Teams",
-        "mode": "edit",
-        "team_id": team_id,
-        "form": {
-            "name": team.name,
-            "default_alerting_profile_id": str(team.default_alerting_profile_id)
-            if team.default_alerting_profile_id
-            else "",
+    return templates.TemplateResponse(
+        request,
+        "settings_team_form.html",
+        {
+            "active_page": "Teams",
+            "mode": "edit",
+            "team_id": team_id,
+            "form": {
+                "name": team.name,
+                "default_alerting_profile_id": str(team.default_alerting_profile_id)
+                if team.default_alerting_profile_id
+                else "",
+            },
+            "errors": [],
+            "alerting_profiles": profiles,
         },
-        "errors": [],
-        "alerting_profiles": profiles,
-    })
+    )
 
 
 @router.post("/settings/teams/{team_id}/edit", response_class=HTMLResponse)
-async def settings_team_update(
-    request: Request, team_id: str, db: AsyncSession = Depends(get_db)
-):
+async def settings_team_update(request: Request, team_id: str, db: AsyncSession = Depends(get_db)):
     uid = _parse_uuid(team_id)
     if not uid:
         return HTMLResponse("Invalid ID", status_code=400)
@@ -3052,35 +3325,43 @@ async def settings_team_update(
     if not team:
         return HTMLResponse("Not found", status_code=404)
     form = await request.form()
-    name = (form.get("name") or "").strip()
-    dap = _parse_uuid(form.get("default_alerting_profile_id"))
+    name = (_form_text(form.get("name")) or "").strip()
+    dap = _parse_uuid(_form_text(form.get("default_alerting_profile_id")))
     errors: list[str] = []
     if not name:
         errors.append("Name is required.")
     if errors:
         _, profiles = await _teams_and_alerting_profiles(db)
-        return templates.TemplateResponse(request, "settings_team_form.html", {
-            "active_page": "Teams",
-            "mode": "edit",
-            "team_id": team_id,
-            "form": {"name": name, "default_alerting_profile_id": str(dap) if dap else ""},
-            "errors": errors,
-            "alerting_profiles": profiles,
-        })
+        return templates.TemplateResponse(
+            request,
+            "settings_team_form.html",
+            {
+                "active_page": "Teams",
+                "mode": "edit",
+                "team_id": team_id,
+                "form": {"name": name, "default_alerting_profile_id": str(dap) if dap else ""},
+                "errors": errors,
+                "alerting_profiles": profiles,
+            },
+        )
     team.name = name
     team.default_alerting_profile_id = dap
     try:
         await db.flush()
     except Exception:
         _, profiles = await _teams_and_alerting_profiles(db)
-        return templates.TemplateResponse(request, "settings_team_form.html", {
-            "active_page": "Teams",
-            "mode": "edit",
-            "team_id": team_id,
-            "form": {"name": name, "default_alerting_profile_id": str(dap) if dap else ""},
-            "errors": ["Could not save (duplicate name?)."],
-            "alerting_profiles": profiles,
-        })
+        return templates.TemplateResponse(
+            request,
+            "settings_team_form.html",
+            {
+                "active_page": "Teams",
+                "mode": "edit",
+                "team_id": team_id,
+                "form": {"name": name, "default_alerting_profile_id": str(dap) if dap else ""},
+                "errors": ["Could not save (duplicate name?)."],
+                "alerting_profiles": profiles,
+            },
+        )
     return RedirectResponse("/ui/settings/teams", status_code=303)
 
 
@@ -3094,9 +3375,7 @@ async def settings_team_delete(team_id: str, db: AsyncSession = Depends(get_db))
         c = await db.scalar(
             select(func.count()).select_from(Contract).where(Contract.team_id == uid)
         )
-        d = await db.scalar(
-            select(func.count()).select_from(DQCheck).where(DQCheck.team_id == uid)
-        )
+        d = await db.scalar(select(func.count()).select_from(DQCheck).where(DQCheck.team_id == uid))
         if (c or 0) == 0 and (d or 0) == 0:
             await db.delete(team)
     return RedirectResponse("/ui/settings/teams", status_code=303)
@@ -3110,25 +3389,33 @@ async def settings_alerting_list(request: Request, db: AsyncSession = Depends(ge
         .order_by(AlertingProfile.name)
     )
     profiles = list(result.scalars().unique().all())
-    return templates.TemplateResponse(request, "settings_alerting_list.html", {
-        "active_page": "Alerting",
-        "profiles": profiles,
-    })
+    return templates.TemplateResponse(
+        request,
+        "settings_alerting_list.html",
+        {
+            "active_page": "Alerting",
+            "profiles": profiles,
+        },
+    )
 
 
 @router.get("/settings/alerting/new", response_class=HTMLResponse)
 async def settings_alerting_new_form(request: Request):
-    return templates.TemplateResponse(request, "settings_alerting_form.html", {
-        "active_page": "Alerting",
-        "mode": "create",
-        "form": {
-            "name": "",
-            "description": "",
-            "slack_channel": "",
-            "email": "",
+    return templates.TemplateResponse(
+        request,
+        "settings_alerting_form.html",
+        {
+            "active_page": "Alerting",
+            "mode": "create",
+            "form": {
+                "name": "",
+                "description": "",
+                "slack_channel": "",
+                "email": "",
+            },
+            "errors": [],
         },
-        "errors": [],
-    })
+    )
 
 
 @router.post("/settings/alerting/new", response_class=HTMLResponse)
@@ -3136,27 +3423,31 @@ async def settings_alerting_create(request: Request, db: AsyncSession = Depends(
     from sraosha.alerting.channel_types import CHANNEL_EMAIL, CHANNEL_SLACK
 
     form = await request.form()
-    name = (form.get("name") or "").strip()
-    description = (form.get("description") or "").strip() or None
-    slack_ch = (form.get("slack_channel") or "").strip()
-    email = (form.get("email") or "").strip()
+    name = (_form_text(form.get("name")) or "").strip()
+    description = (_form_text(form.get("description")) or "").strip() or None
+    slack_ch = (_form_text(form.get("slack_channel")) or "").strip()
+    email = (_form_text(form.get("email")) or "").strip()
     errors: list[str] = []
     if not name:
         errors.append("Name is required.")
     if not slack_ch and not email:
         errors.append("Provide at least a Slack channel or an email address.")
     if errors:
-        return templates.TemplateResponse(request, "settings_alerting_form.html", {
-            "active_page": "Alerting",
-            "mode": "create",
-            "form": {
-                "name": name,
-                "description": description or "",
-                "slack_channel": slack_ch,
-                "email": email,
+        return templates.TemplateResponse(
+            request,
+            "settings_alerting_form.html",
+            {
+                "active_page": "Alerting",
+                "mode": "create",
+                "form": {
+                    "name": name,
+                    "description": description or "",
+                    "slack_channel": slack_ch,
+                    "email": email,
+                },
+                "errors": errors,
             },
-            "errors": errors,
-        })
+        )
     profile = AlertingProfile(name=name, description=description)
     db.add(profile)
     await db.flush()
@@ -3210,18 +3501,22 @@ async def settings_alerting_edit_form(
                 email = str(to[0])
             elif ch.config.get("email"):
                 email = str(ch.config["email"])
-    return templates.TemplateResponse(request, "settings_alerting_form.html", {
-        "active_page": "Alerting",
-        "mode": "edit",
-        "profile_id": profile_id,
-        "form": {
-            "name": profile.name,
-            "description": profile.description or "",
-            "slack_channel": slack_ch,
-            "email": email,
+    return templates.TemplateResponse(
+        request,
+        "settings_alerting_form.html",
+        {
+            "active_page": "Alerting",
+            "mode": "edit",
+            "profile_id": profile_id,
+            "form": {
+                "name": profile.name,
+                "description": profile.description or "",
+                "slack_channel": slack_ch,
+                "email": email,
+            },
+            "errors": [],
         },
-        "errors": [],
-    })
+    )
 
 
 @router.post("/settings/alerting/{profile_id}/edit", response_class=HTMLResponse)
@@ -3242,28 +3537,32 @@ async def settings_alerting_update(
     if not profile:
         return HTMLResponse("Not found", status_code=404)
     form = await request.form()
-    name = (form.get("name") or "").strip()
-    description = (form.get("description") or "").strip() or None
-    slack_ch = (form.get("slack_channel") or "").strip()
-    email = (form.get("email") or "").strip()
+    name = (_form_text(form.get("name")) or "").strip()
+    description = (_form_text(form.get("description")) or "").strip() or None
+    slack_ch = (_form_text(form.get("slack_channel")) or "").strip()
+    email = (_form_text(form.get("email")) or "").strip()
     errors: list[str] = []
     if not name:
         errors.append("Name is required.")
     if not slack_ch and not email:
         errors.append("Provide at least a Slack channel or an email address.")
     if errors:
-        return templates.TemplateResponse(request, "settings_alerting_form.html", {
-            "active_page": "Alerting",
-            "mode": "edit",
-            "profile_id": profile_id,
-            "form": {
-                "name": name,
-                "description": description or "",
-                "slack_channel": slack_ch,
-                "email": email,
+        return templates.TemplateResponse(
+            request,
+            "settings_alerting_form.html",
+            {
+                "active_page": "Alerting",
+                "mode": "edit",
+                "profile_id": profile_id,
+                "form": {
+                    "name": name,
+                    "description": description or "",
+                    "slack_channel": slack_ch,
+                    "email": email,
+                },
+                "errors": errors,
             },
-            "errors": errors,
-        })
+        )
     profile.name = name
     profile.description = description
     for ch in list(profile.channels):
@@ -3308,6 +3607,7 @@ async def settings_alerting_delete(profile_id: str, db: AsyncSession = Depends(g
 # Connections CRUD
 # ---------------------------------------------------------------------------
 
+
 @router.get("/connections", response_class=HTMLResponse)
 async def connections_list(request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Connection).order_by(Connection.name))
@@ -3321,28 +3621,42 @@ async def connections_list(request: Request, db: AsyncSession = Depends(get_db))
         for conn in connections:
             if conn.name and conn.name in raw:
                 usage[conn.name] = usage.get(conn.name, 0) + 1
-    return templates.TemplateResponse(request, "connections_list.html", {
-        "active_page": "Connections",
-        "connections": connections,
-        "usage_by_name": usage,
-    })
+    return templates.TemplateResponse(
+        request,
+        "connections_list.html",
+        {
+            "active_page": "Connections",
+            "connections": connections,
+            "usage_by_name": usage,
+        },
+    )
 
 
 @router.get("/connections/new", response_class=HTMLResponse)
 async def connection_create_form(request: Request):
-    return templates.TemplateResponse(request, "connection_form.html", {
-        "active_page": "Connections",
-        "mode": "create",
-        "form": {"name": "", "server_type": "postgres", "has_password": False, "has_token": False, "has_service_account_json": False},
-        "errors": [],
-    })
+    return templates.TemplateResponse(
+        request,
+        "connection_form.html",
+        {
+            "active_page": "Connections",
+            "mode": "create",
+            "form": {
+                "name": "",
+                "server_type": "postgres",
+                "has_password": False,
+                "has_token": False,
+                "has_service_account_json": False,
+            },
+            "errors": [],
+        },
+    )
 
 
 @router.post("/connections/new", response_class=HTMLResponse)
 async def connection_create(request: Request, db: AsyncSession = Depends(get_db)):
     form_data = await request.form()
-    name = (form_data.get("name") or "").strip()
-    server_type = form_data.get("server_type", "postgres")
+    name = (_form_text(form_data.get("name")) or "").strip()
+    server_type = _form_text(form_data.get("server_type"), "postgres")
 
     errors: list[str] = []
     if not name:
@@ -3352,45 +3666,69 @@ async def connection_create(request: Request, db: AsyncSession = Depends(get_db)
     if existing.scalar_one_or_none():
         errors.append(f"Connection '{name}' already exists.")
 
-    form = dict(form_data)
+    form: dict[str, Any] = dict(form_data)
     form["has_password"] = False
     form["has_token"] = False
     form["has_service_account_json"] = False
 
     if errors:
-        return templates.TemplateResponse(request, "connection_form.html", {
-            "active_page": "Connections", "mode": "create", "form": form, "errors": errors,
-        })
+        return templates.TemplateResponse(
+            request,
+            "connection_form.html",
+            {
+                "active_page": "Connections",
+                "mode": "create",
+                "form": form,
+                "errors": errors,
+            },
+        )
 
     from sraosha.crypto import encrypt
 
     extra = {}
-    for key in ("region", "s3_staging_dir", "tenant_id", "client_id", "client_secret", "workspace", "lakehouse"):
-        val = (form_data.get(f"extra_{key}") or "").strip()
+    for key in (
+        "region",
+        "s3_staging_dir",
+        "tenant_id",
+        "client_id",
+        "client_secret",
+        "workspace",
+        "lakehouse",
+    ):
+        val = (_form_text(form_data.get(f"extra_{key}")) or "").strip()
         if val:
             extra[key] = val
 
+    create_port_raw = _form_text(form_data.get("port"))
     conn = Connection(
         name=name,
         server_type=server_type,
-        description=form_data.get("description") or None,
-        host=form_data.get("host") or None,
-        port=int(form_data.get("port")) if form_data.get("port") else None,
-        database=form_data.get("database") or None,
-        schema_name=form_data.get("schema_name") or None,
-        account=form_data.get("account") or None,
-        warehouse=form_data.get("warehouse") or None,
-        role=form_data.get("role") or None,
-        catalog=form_data.get("catalog") or None,
-        http_path=form_data.get("http_path") or None,
-        project=form_data.get("project") or None,
-        dataset=form_data.get("dataset") or None,
-        location=form_data.get("location") or None,
-        path=form_data.get("path") or None,
-        username=form_data.get("username") or None,
-        password_encrypted=encrypt(form_data["password"]) if form_data.get("password") else None,
-        token_encrypted=encrypt(form_data["token"]) if form_data.get("token") else None,
-        service_account_json_encrypted=encrypt(form_data["service_account_json"]) if form_data.get("service_account_json") else None,
+        description=_form_text(form_data.get("description")) or None,
+        host=_form_text(form_data.get("host")) or None,
+        port=int(create_port_raw) if create_port_raw else None,
+        database=_form_text(form_data.get("database")) or None,
+        schema_name=_form_text(form_data.get("schema_name")) or None,
+        account=_form_text(form_data.get("account")) or None,
+        warehouse=_form_text(form_data.get("warehouse")) or None,
+        role=_form_text(form_data.get("role")) or None,
+        catalog=_form_text(form_data.get("catalog")) or None,
+        http_path=_form_text(form_data.get("http_path")) or None,
+        project=_form_text(form_data.get("project")) or None,
+        dataset=_form_text(form_data.get("dataset")) or None,
+        location=_form_text(form_data.get("location")) or None,
+        path=_form_text(form_data.get("path")) or None,
+        username=_form_text(form_data.get("username")) or None,
+        password_encrypted=encrypt(_form_text(form_data.get("password")))
+        if _form_text(form_data.get("password"))
+        else None,
+        token_encrypted=encrypt(_form_text(form_data.get("token")))
+        if _form_text(form_data.get("token"))
+        else None,
+        service_account_json_encrypted=(
+            encrypt(_form_text(form_data.get("service_account_json")))
+            if _form_text(form_data.get("service_account_json"))
+            else None
+        ),
         extra_params=extra or None,
     )
     db.add(conn)
@@ -3400,9 +3738,12 @@ async def connection_create(request: Request, db: AsyncSession = Depends(get_db)
 
 @router.get("/connections/{conn_id}/edit", response_class=HTMLResponse)
 async def connection_edit_form(
-    request: Request, conn_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    conn_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     import uuid as uuid_mod
+
     try:
         uid = uuid_mod.UUID(conn_id)
     except ValueError:
@@ -3437,20 +3778,27 @@ async def connection_edit_form(
         "extra_params": conn.extra_params or {},
     }
 
-    return templates.TemplateResponse(request, "connection_form.html", {
-        "active_page": "Connections",
-        "mode": "edit",
-        "conn_id": conn_id,
-        "form": form,
-        "errors": [],
-    })
+    return templates.TemplateResponse(
+        request,
+        "connection_form.html",
+        {
+            "active_page": "Connections",
+            "mode": "edit",
+            "conn_id": conn_id,
+            "form": form,
+            "errors": [],
+        },
+    )
 
 
 @router.post("/connections/{conn_id}/edit", response_class=HTMLResponse)
 async def connection_update(
-    request: Request, conn_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    conn_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     import uuid as uuid_mod
+
     try:
         uid = uuid_mod.UUID(conn_id)
     except ValueError:
@@ -3462,7 +3810,7 @@ async def connection_update(
         return HTMLResponse("<h1>Connection not found</h1>", status_code=404)
 
     form_data = await request.form()
-    name = (form_data.get("name") or "").strip()
+    name = (_form_text(form_data.get("name")) or "").strip()
 
     errors: list[str] = []
     if not name:
@@ -3473,53 +3821,62 @@ async def connection_update(
         if dup.scalar_one_or_none():
             errors.append(f"Connection '{name}' already exists.")
 
-    form = dict(form_data)
+    form: dict[str, Any] = dict(form_data)
     form["has_password"] = bool(conn.password_encrypted)
     form["has_token"] = bool(conn.token_encrypted)
     form["has_service_account_json"] = bool(conn.service_account_json_encrypted)
 
     if errors:
-        return templates.TemplateResponse(request, "connection_form.html", {
-            "active_page": "Connections", "mode": "edit", "conn_id": conn_id,
-            "form": form, "errors": errors,
-        })
+        return templates.TemplateResponse(
+            request,
+            "connection_form.html",
+            {
+                "active_page": "Connections",
+                "mode": "edit",
+                "conn_id": conn_id,
+                "form": form,
+                "errors": errors,
+            },
+        )
 
     from sraosha.crypto import encrypt
 
     conn.name = name
-    conn.server_type = form_data.get("server_type", conn.server_type)
-    conn.description = form_data.get("description") or None
-    conn.host = form_data.get("host") or None
-    conn.port = int(form_data.get("port")) if form_data.get("port") else None
-    conn.database = form_data.get("database") or None
-    conn.schema_name = form_data.get("schema_name") or None
-    conn.account = form_data.get("account") or None
-    conn.warehouse = form_data.get("warehouse") or None
-    conn.role = form_data.get("role") or None
-    conn.catalog = form_data.get("catalog") or None
-    conn.http_path = form_data.get("http_path") or None
-    conn.project = form_data.get("project") or None
-    conn.dataset = form_data.get("dataset") or None
-    conn.location = form_data.get("location") or None
-    conn.path = form_data.get("path") or None
-    conn.username = form_data.get("username") or None
+    conn.server_type = _form_text(form_data.get("server_type"), conn.server_type)
+    conn.description = _form_text(form_data.get("description")) or None
+    conn.host = _form_text(form_data.get("host")) or None
+    port_raw = _form_text(form_data.get("port"))
+    conn.port = int(port_raw) if port_raw else None
+    conn.database = _form_text(form_data.get("database")) or None
+    conn.schema_name = _form_text(form_data.get("schema_name")) or None
+    conn.account = _form_text(form_data.get("account")) or None
+    conn.warehouse = _form_text(form_data.get("warehouse")) or None
+    conn.role = _form_text(form_data.get("role")) or None
+    conn.catalog = _form_text(form_data.get("catalog")) or None
+    conn.http_path = _form_text(form_data.get("http_path")) or None
+    conn.project = _form_text(form_data.get("project")) or None
+    conn.dataset = _form_text(form_data.get("dataset")) or None
+    conn.location = _form_text(form_data.get("location")) or None
+    conn.path = _form_text(form_data.get("path")) or None
+    conn.username = _form_text(form_data.get("username")) or None
 
-    if form_data.get("password"):
-        conn.password_encrypted = encrypt(form_data["password"])
-    if form_data.get("token"):
-        conn.token_encrypted = encrypt(form_data["token"])
-    if form_data.get("service_account_json"):
-        conn.service_account_json_encrypted = encrypt(form_data["service_account_json"])
+    if _form_text(form_data.get("password")):
+        conn.password_encrypted = encrypt(_form_text(form_data.get("password")))
+    if _form_text(form_data.get("token")):
+        conn.token_encrypted = encrypt(_form_text(form_data.get("token")))
+    sa_json = _form_text(form_data.get("service_account_json"))
+    if sa_json:
+        conn.service_account_json_encrypted = encrypt(sa_json)
 
     extra = dict(conn.extra_params or {})
     for key in ("region", "s3_staging_dir", "tenant_id", "client_id", "workspace", "lakehouse"):
-        val = (form_data.get(f"extra_{key}") or "").strip()
+        val = (_form_text(form_data.get(f"extra_{key}")) or "").strip()
         if val:
             extra[key] = val
         else:
             extra.pop(key, None)
-    if (form_data.get("extra_client_secret") or "").strip():
-        extra["client_secret"] = form_data["extra_client_secret"].strip()
+    if (_form_text(form_data.get("extra_client_secret")) or "").strip():
+        extra["client_secret"] = _form_text(form_data.get("extra_client_secret")).strip()
     conn.extra_params = extra or None
 
     conn.updated_at = datetime.now(timezone.utc)
@@ -3529,9 +3886,12 @@ async def connection_update(
 
 @router.post("/connections/{conn_id}/delete")
 async def connection_delete(
-    request: Request, conn_id: str, db: AsyncSession = Depends(get_db),
+    request: Request,
+    conn_id: str,
+    db: AsyncSession = Depends(get_db),
 ):
     import uuid as uuid_mod
+
     try:
         uid = uuid_mod.UUID(conn_id)
     except ValueError:
@@ -3561,23 +3921,25 @@ async def api_connection_detail(conn_id: str, db: AsyncSession = Depends(get_db)
     if not conn:
         return JSONResponse({"error": "Not found"}, status_code=404)
 
-    return JSONResponse({
-        "name": conn.name,
-        "server_type": conn.server_type,
-        "host": conn.host,
-        "port": conn.port,
-        "database": conn.database,
-        "schema_name": conn.schema_name,
-        "account": conn.account,
-        "warehouse": conn.warehouse,
-        "role": conn.role,
-        "catalog": conn.catalog,
-        "http_path": conn.http_path,
-        "project": conn.project,
-        "dataset": conn.dataset,
-        "location": conn.location,
-        "path": conn.path,
-    })
+    return JSONResponse(
+        {
+            "name": conn.name,
+            "server_type": conn.server_type,
+            "host": conn.host,
+            "port": conn.port,
+            "database": conn.database,
+            "schema_name": conn.schema_name,
+            "account": conn.account,
+            "warehouse": conn.warehouse,
+            "role": conn.role,
+            "catalog": conn.catalog,
+            "http_path": conn.http_path,
+            "project": conn.project,
+            "dataset": conn.dataset,
+            "location": conn.location,
+            "path": conn.path,
+        }
+    )
 
 
 def _multi_items_to_dict(form_data) -> dict:

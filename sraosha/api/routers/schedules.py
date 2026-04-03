@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid as uuid_mod
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -12,9 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sraosha.api.deps import get_db
 from sraosha.models.contract import Contract
 from sraosha.models.dq_check import DQCheck
-from sraosha.models.team import Team
 from sraosha.models.dq_schedule import DQSchedule
 from sraosha.models.schedule import ValidationSchedule
+from sraosha.models.team import Team
 from sraosha.schemas.schedule import (
     ScheduleListItem,
     ScheduleListResponse,
@@ -39,7 +40,8 @@ def _compute_next_run(preset: str, cron_expr: str | None) -> datetime:
         from croniter import croniter
 
         cron = croniter(cron_expr, now)
-        return cron.get_next(datetime).replace(tzinfo=timezone.utc)
+        next_run = cast(datetime, cron.get_next(datetime))
+        return next_run.replace(tzinfo=timezone.utc)
     seconds = PRESET_SECONDS.get(preset, 86400)
     return now + timedelta(seconds=seconds)
 
@@ -107,9 +109,7 @@ async def upsert_schedule(
     body: ScheduleRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    contract_result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    contract_result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     if not contract_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Contract not found")
 
@@ -167,9 +167,7 @@ async def upsert_dq_schedule(
     if not check_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="DQ check not found")
 
-    result = await db.execute(
-        select(DQSchedule).where(DQSchedule.dq_check_id == dq_check_id)
-    )
+    result = await db.execute(select(DQSchedule).where(DQSchedule.dq_check_id == dq_check_id))
     schedule = result.scalar_one_or_none()
     next_run = _compute_next_run(body.interval_preset, body.cron_expression)
 
@@ -191,7 +189,11 @@ async def upsert_dq_schedule(
 
     await db.flush()
     await db.refresh(schedule)
-    return {"id": str(schedule.id), "dq_check_id": str(dq_check_id), "next_run_at": str(schedule.next_run_at)}
+    return {
+        "id": str(schedule.id),
+        "dq_check_id": str(dq_check_id),
+        "next_run_at": str(schedule.next_run_at),
+    }
 
 
 @router.delete("/dq/{dq_check_id}/schedule")
@@ -199,9 +201,7 @@ async def delete_dq_schedule(
     dq_check_id: uuid_mod.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(DQSchedule).where(DQSchedule.dq_check_id == dq_check_id)
-    )
+    result = await db.execute(select(DQSchedule).where(DQSchedule.dq_check_id == dq_check_id))
     schedule = result.scalar_one_or_none()
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")

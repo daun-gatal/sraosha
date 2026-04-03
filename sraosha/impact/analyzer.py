@@ -21,8 +21,6 @@ class ImpactAnalyzer:
     def to_json(self, node_ids: set[str] | None = None) -> dict:
         return self.graph.to_json(node_ids)
 
-    def lineage_json(
-        self, contract_id: str, upstream_depth: int, downstream_depth: int
-    ) -> dict:
+    def lineage_json(self, contract_id: str, upstream_depth: int, downstream_depth: int) -> dict:
         ns = self.graph.lineage_node_set(contract_id, upstream_depth, downstream_depth)
         return self.graph.to_json(ns)

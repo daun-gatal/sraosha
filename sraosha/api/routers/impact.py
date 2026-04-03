@@ -51,9 +51,7 @@ async def get_lineage(
     upstream_depth: int = Query(default=2, ge=0, le=10),
     downstream_depth: int = Query(default=2, ge=0, le=10),
 ):
-    contract_result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    contract_result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     if not contract_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Contract not found")
 
@@ -67,9 +65,7 @@ async def get_lineage(
 
 @router.get("/{contract_id}/downstream", response_model=DownstreamResponse)
 async def get_downstream(contract_id: str, db: AsyncSession = Depends(get_db)):
-    contract_result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    contract_result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     if not contract_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Contract not found")
 
@@ -82,9 +78,7 @@ async def get_downstream(contract_id: str, db: AsyncSession = Depends(get_db)):
 async def analyze_impact(
     contract_id: str, body: ImpactAnalysisRequest, db: AsyncSession = Depends(get_db)
 ):
-    contract_result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    contract_result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     if not contract_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Contract not found")
 

@@ -26,9 +26,7 @@ router = APIRouter()
 async def list_teams(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Team)
-        .options(
-            selectinload(Team.default_alerting_profile).selectinload(AlertingProfile.channels)
-        )
+        .options(selectinload(Team.default_alerting_profile).selectinload(AlertingProfile.channels))
         .order_by(Team.name)
     )
     teams = result.scalars().unique().all()
@@ -75,9 +73,7 @@ async def get_team(team_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Team)
         .where(Team.id == uid)
-        .options(
-            selectinload(Team.default_alerting_profile).selectinload(AlertingProfile.channels)
-        )
+        .options(selectinload(Team.default_alerting_profile).selectinload(AlertingProfile.channels))
     )
     team = result.scalar_one_or_none()
     if not team:
@@ -104,9 +100,7 @@ async def get_team(team_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/contracts/{contract_id}/sla", response_model=ContractSlaResponse)
 async def contract_sla(contract_id: str, db: AsyncSession = Depends(get_db)):
-    contract_result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    contract_result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     contract = contract_result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")

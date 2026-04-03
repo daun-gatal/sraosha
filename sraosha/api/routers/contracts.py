@@ -22,9 +22,7 @@ from sraosha.schemas.run import ValidationRunResponse
 router = APIRouter()
 
 
-async def _validate_team_and_profile(
-    db: AsyncSession, team_id, alerting_profile_id
-) -> None:
+async def _validate_team_and_profile(db: AsyncSession, team_id, alerting_profile_id) -> None:
     if team_id is not None and not await db.get(Team, team_id):
         raise HTTPException(status_code=400, detail="team_id not found")
     if alerting_profile_id is not None and not await db.get(AlertingProfile, alerting_profile_id):
@@ -58,9 +56,7 @@ async def list_contracts(db: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=ContractResponse, status_code=201)
 async def create_contract(body: ContractCreateRequest, db: AsyncSession = Depends(get_db)):
-    existing = await db.execute(
-        select(Contract).where(Contract.contract_id == body.contract_id)
-    )
+    existing = await db.execute(select(Contract).where(Contract.contract_id == body.contract_id))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Contract ID already exists")
 
@@ -125,9 +121,7 @@ async def update_contract(
 
 @router.delete("/{contract_id}", status_code=204)
 async def delete_contract(contract_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -136,9 +130,7 @@ async def delete_contract(contract_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{contract_id}/run", response_model=ValidationRunResponse)
 async def trigger_run(contract_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(Contract).where(Contract.contract_id == contract_id)
-    )
+    result = await db.execute(select(Contract).where(Contract.contract_id == contract_id))
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -151,9 +143,7 @@ async def trigger_run(contract_id: str, db: AsyncSession = Depends(get_db)):
     server_type, creds = await resolve_connection_credentials_async(contract_id, db)
 
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as tmp:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp:
             tmp.write(contract.raw_yaml)
             tmp_path = tmp.name
 

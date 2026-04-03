@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 CONFIG_FILE_NAME = ".sraosha"
 
@@ -60,14 +60,28 @@ class SraoshaSettings(BaseSettings):
 
     ENCRYPTION_KEY: str = ""
 
-    model_config = {"env_file": None, "case_sensitive": True, "extra": "ignore"}
+    model_config = SettingsConfigDict(
+        env_file=None,
+        case_sensitive=True,
+        extra="ignore",
+    )
 
 
 def load_settings(config_path: str | None = None) -> SraoshaSettings:
     """Create a ``SraoshaSettings`` instance with the resolved config file."""
     found = _find_config_file(config_path)
     if found:
-        return SraoshaSettings(_env_file=str(found))
+        env_path = found
+
+        class SraoshaSettingsFromFile(SraoshaSettings):
+            model_config = SettingsConfigDict(
+                env_file=env_path,
+                env_file_encoding="utf-8",
+                case_sensitive=True,
+                extra="ignore",
+            )
+
+        return SraoshaSettingsFromFile()
     return SraoshaSettings()
 
 

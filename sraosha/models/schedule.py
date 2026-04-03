@@ -17,12 +17,8 @@ class ValidationSchedule(Base):
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     interval_preset: Mapped[str] = mapped_column(String, nullable=False, default="daily")
     cron_expression: Mapped[str | None] = mapped_column(String, nullable=True)
-    next_run_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    last_run_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
