@@ -1,4 +1,4 @@
-"""Serve the built React SPA from ``frontend/dist`` when present."""
+"""Serve the React SPA from ``sraosha/web/dist`` (wheel) or ``frontend/dist`` (checkout)."""
 
 from __future__ import annotations
 
@@ -8,15 +8,36 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+import sraosha
 
-def mount_spa(app: FastAPI) -> Path | None:
-    """Mount ``/app`` static assets and HTML shell. Returns dist path if mounted."""
+
+def _bundled_spa_dist() -> Path | None:
+    """Wheel / editable install: static files next to the ``sraosha`` package."""
+    dist = Path(sraosha.__file__).resolve().parent / "web" / "dist"
+    index = dist / "index.html"
+    if index.is_file():
+        return dist
+    return None
+
+
+def _repo_frontend_dist() -> Path | None:
+    """Checkout layout: ``frontend/dist`` beside the ``sraosha`` package directory."""
     repo_root = Path(__file__).resolve().parent.parent.parent
     dist = repo_root / "frontend" / "dist"
     index = dist / "index.html"
-    assets_dir = dist / "assets"
-    if not index.is_file():
+    if index.is_file():
+        return dist
+    return None
+
+
+def mount_spa(app: FastAPI) -> Path | None:
+    """Mount ``/app`` static assets and HTML shell. Returns dist path if mounted."""
+    dist = _bundled_spa_dist() or _repo_frontend_dist()
+    if dist is None:
         return None
+
+    index = dist / "index.html"
+    assets_dir = dist / "assets"
 
     if assets_dir.is_dir():
         app.mount(

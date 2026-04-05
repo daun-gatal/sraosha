@@ -1,6 +1,6 @@
 # Sraosha
 
-**Enforcement and governance runtime for YAML data contracts.** Validates with [`datacontract-cli`](https://github.com/datacontract/datacontract-cli), exposes a **REST API**, an **operator CLI** (`serve`, `db`, `worker`, `beat`), optional Soda-based database checks, and a **React SPA** served from the API at `/app/` when `frontend/dist` is built.
+**Enforcement and governance runtime for YAML data contracts.** Validates with [`datacontract-cli`](https://github.com/datacontract/datacontract-cli), exposes a **REST API**, an **operator CLI** (`serve`, `db`, `worker`, `beat`), optional Soda-based database checks, and a **React SPA** served from the API at `/app/` (bundled under `sraosha/web/dist` in the wheel, or `frontend/dist` in a dev checkout).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://python.org)
@@ -26,7 +26,7 @@
 | Connections | Encrypted DB credentials via `/api/v1/connections` for validation and DQ |
 | Data quality (optional) | Soda Core checks per connection; install e.g. `soda-core-postgres` as needed |
 | Operations | PostgreSQL persistence, Celery + Redis for validation and DQ schedules |
-| UI | SPA at `/app/` (after `cd frontend && bun run build`), OpenAPI at `/docs` |
+| UI | SPA at `/app/` (included in `pip install`; dev: `make sync-web-dist` or build in `frontend/`), OpenAPI at `/docs` |
 
 ## Install
 
@@ -65,9 +65,9 @@ make start    # builds SPA; starts API (serves UI), Celery worker, and beat in b
 
 Foreground API only (no worker/beat): `make serve`. Vite on :5173: `make frontend`. Celery alone: `uv run sraosha worker` / `uv run sraosha beat` (with Redis from `.sraosha`).
 
-UI when using `make serve`: `http://localhost:8000/app/` (same as a manual `cd frontend && bun run build` then `sraosha serve`).
+UI when using `make serve`: `http://localhost:8000/app/` (`make sync-web-dist` builds the SPA into `sraosha/web/dist` and `frontend/dist`).
 
-**Docker Compose (API + built UI):** the [`Dockerfile`](Dockerfile) runs `npm run build` in a Node stage and copies `frontend/dist` into the image. The **`api`** service is the only HTTP entrypoint; it serves the React app under **`/app/`** (and `/` redirects there when the SPA is present). There is no separate frontend container.
+**Docker Compose (API + built UI):** the [`Dockerfile`](Dockerfile) runs `npm run build` in a Node stage and copies the build into `sraosha/web/dist` in the image. The **`api`** service is the only HTTP entrypoint; it serves the React app under **`/app/`** (and `/` redirects there when the SPA is present). There is no separate frontend container.
 
 ```bash
 cp .sraosha.example .sraosha   # ensure env matches compose (compose overrides DATABASE_URL / REDIS_URL)
@@ -140,7 +140,7 @@ pre-commit install
 make db && make start
 ```
 
-**Make:** `sync`, `db`, `start`, `stop`, `serve`, `frontend`, `lint`, `fix`, `test`, `clean` — see [`Makefile`](Makefile). Full guide: [CONTRIBUTING.md](CONTRIBUTING.md).
+**Make:** `sync`, `sync-web-dist`, `db`, `start`, `stop`, `serve`, `frontend`, `lint`, `fix`, `test`, `clean` — see [`Makefile`](Makefile). Full guide: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributing & license
 

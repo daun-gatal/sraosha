@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 # Dev: make sync && make db && make start  —  make stop
 
-.PHONY: help sync db start stop serve frontend lint fix test clean
+.PHONY: help sync db start stop serve frontend sync-web-dist lint fix test clean
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -9,12 +9,15 @@ help: ## List targets
 sync: ## Install Python deps (uv)
 	uv sync --extra dev
 
+sync-web-dist: ## Build SPA into sraosha/web/dist (from frontend/; used by wheels and serve)
+	bash scripts/sync-web-dist.sh
+
 db: ## Alembic upgrade head
 	uv run sraosha db
 
 start: ## Build SPA; API + worker + beat in background (.sraosha-start.*)
 	@$(MAKE) stop
-	cd frontend && bun install && bun run build && cd ..
+	@$(MAKE) sync-web-dist
 	@bash -c 'rm -f .sraosha-start.pids .sraosha-start-api.log .sraosha-start-worker.log .sraosha-start-beat.log; \
 		nohup uv run sraosha serve --reload >> .sraosha-start-api.log 2>&1 & echo $$! >> .sraosha-start.pids; \
 		nohup uv run sraosha worker --loglevel info >> .sraosha-start-worker.log 2>&1 & echo $$! >> .sraosha-start.pids; \
@@ -31,7 +34,7 @@ stop: ## Kill .sraosha-start PIDs + :8000 / :5173
 	@rm -f .dev-all.pids
 
 serve: ## Build SPA; API foreground (reload)
-	cd frontend && bun install && bun run build && cd .. && uv run sraosha serve --reload
+	@$(MAKE) sync-web-dist && uv run sraosha serve --reload
 
 frontend: ## Vite dev (:5173, proxies /api)
 	cd frontend && bun install && bun run dev

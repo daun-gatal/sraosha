@@ -33,7 +33,8 @@ RUN uv sync --frozen --no-dev
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:${PATH}"
 
-COPY --from=frontend-build /build/dist ./frontend/dist
+# Same layout as ``scripts/sync-web-dist.sh`` / PyPI wheel: SPA under the Python package.
+COPY --from=frontend-build /build/dist ./sraosha/web/dist
 
 EXPOSE 8000
 CMD ["sraosha", "serve", "--host", "0.0.0.0", "--port", "8000"]
