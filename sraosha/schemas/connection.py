@@ -5,8 +5,9 @@ from typing import Any
 from pydantic import BaseModel
 
 
-class ConnectionCreate(BaseModel):
-    name: str
+class ConnectionFieldsBase(BaseModel):
+    """Shared connection form fields (name supplied by subclasses)."""
+
     server_type: str
     description: str | None = None
     host: str | None = None
@@ -27,6 +28,10 @@ class ConnectionCreate(BaseModel):
     token: str | None = None
     service_account_json: str | None = None
     extra_params: dict[str, Any] | None = None
+
+
+class ConnectionCreate(ConnectionFieldsBase):
+    name: str
 
 
 class ConnectionUpdate(BaseModel):
@@ -89,7 +94,7 @@ class ConnectionListResponse(BaseModel):
     total: int
 
 
-class ConnectionTestRequest(ConnectionCreate):
+class ConnectionTestRequest(ConnectionFieldsBase):
     """Create-shaped body; name optional. Use existing_connection_id to merge DB secrets (edit)."""
 
     name: str | None = None

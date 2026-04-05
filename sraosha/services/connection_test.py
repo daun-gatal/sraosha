@@ -266,8 +266,9 @@ def _test_oracle(params: dict[str, Any]) -> tuple[bool, str | None]:
 def _test_trino_presto(
     params: dict[str, Any], *, legacy_prepared_statements: bool
 ) -> tuple[bool, str | None]:
-    import trino.auth
-    import trino.dbapi as trino
+    from trino import auth as trino_auth
+    from trino import constants as trino_constants
+    from trino.dbapi import connect as trino_connect
 
     host = (params.get("host") or "localhost").strip()
     port = _port(params, 8080)
@@ -286,11 +287,11 @@ def _test_trino_presto(
     else:
         hs = "http"
     auth = (
-        trino.auth.BasicAuthentication(user, password)
+        trino_auth.BasicAuthentication(user, password)
         if (password and str(password).strip())
-        else trino.constants.DEFAULT_AUTH
+        else trino_constants.DEFAULT_AUTH
     )
-    conn = trino.connect(
+    conn = trino_connect(
         host=host,
         port=port,
         user=user,
