@@ -21,12 +21,17 @@ LABEL org.opencontainers.image.title="sraosha" \
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
+# Install deps from uv.lock so the resolver does not backtrack (slow `pip install` with loose
+# google-* constraints). Same graph as `uv sync` locally.
+RUN pip install --no-cache-dir uv
+
+COPY pyproject.toml uv.lock README.md ./
 COPY sraosha/ ./sraosha/
 
-# Editable install keeps sources under `/app` so `sraosha.api.spa` resolves `frontend/dist`
-# relative to the project root (see `mount_spa`).
-RUN pip install --no-cache-dir -e .
+RUN uv sync --frozen --no-dev
+
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="/app/.venv/bin:${PATH}"
 
 COPY --from=frontend-build /build/dist ./frontend/dist
 
