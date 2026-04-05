@@ -168,9 +168,7 @@ async def update_contract(
         setattr(contract, field, value)
     # After applying submitted raw_yaml, merge guided version fields into YAML.
     if spec_ver is not None or info_ver is not None:
-        contract.raw_yaml = merge_spec_and_info_version(
-            contract.raw_yaml, spec_ver, info_ver
-        )
+        contract.raw_yaml = merge_spec_and_info_version(contract.raw_yaml, spec_ver, info_ver)
     contract.updated_at = datetime.now(timezone.utc)
 
     await db.flush()

@@ -152,9 +152,7 @@ async def create_connection(body: ConnectionCreate, db: AsyncSession = Depends(g
         password_encrypted=(
             encrypt(body.password) if body.password and body.password.strip() else None
         ),
-        token_encrypted=(
-            encrypt(body.token) if body.token and body.token.strip() else None
-        ),
+        token_encrypted=(encrypt(body.token) if body.token and body.token.strip() else None),
         service_account_json_encrypted=(
             encrypt(body.service_account_json)
             if body.service_account_json and body.service_account_json.strip()
@@ -196,12 +194,8 @@ async def connection_tables(
         ) from exc
     except Exception as exc:
         logger.exception("connection tables introspection failed")
-        raise HTTPException(
-            status_code=502, detail=f"Introspection failed: {exc!s}"
-        ) from exc
-    items = [
-        TableItem(name=r["table_name"], kind=r["table_type"]) for r in rows
-    ]
+        raise HTTPException(status_code=502, detail=f"Introspection failed: {exc!s}") from exc
+    items = [TableItem(name=r["table_name"], kind=r["table_type"]) for r in rows]
     return TableListResponse(items=items, schema_name=schema_used)
 
 
@@ -232,9 +226,7 @@ async def connection_table_columns(
         ) from exc
     except Exception as exc:
         logger.exception("connection columns introspection failed")
-        raise HTTPException(
-            status_code=502, detail=f"Introspection failed: {exc!s}"
-        ) from exc
+        raise HTTPException(status_code=502, detail=f"Introspection failed: {exc!s}") from exc
     items = [
         ColumnItem(
             name=col["column_name"],
@@ -245,9 +237,7 @@ async def connection_table_columns(
         )
         for col in cols
     ]
-    return ColumnListResponse(
-        items=items, schema_name=schema_used, table_name=table
-    )
+    return ColumnListResponse(items=items, schema_name=schema_used, table_name=table)
 
 
 @router.patch("/{connection_id}", response_model=ConnectionResponse)
