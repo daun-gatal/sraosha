@@ -1,0 +1,38 @@
+@import 'tailwindcss';
+
+/* Distinct from legacy dashboard: warm stone surfaces + teal accent (not indigo sidebar UI) */
+@theme {
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Instrument Sans', var(--font-sans);
+
+  --color-surface: oklch(0.985 0.002 75);
+  --color-surface-elevated: oklch(1 0 0);
+  --color-ink: oklch(0.22 0.02 260);
+  --color-ink-muted: oklch(0.45 0.02 260);
+  --color-accent: oklch(0.55 0.14 195);
+  --color-accent-hover: oklch(0.48 0.14 195);
+  --color-border: oklch(0.9 0.01 80);
+}
+
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  html:not(.dark) {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+    /* Match zinc-style dark UI; components using var(--color-surface-elevated) inherit this. */
+    --color-surface: oklch(0.13 0.008 260);
+    --color-surface-elevated: oklch(0.21 0.014 260);
+    --color-ink: oklch(0.96 0.01 260);
+    --color-ink-muted: oklch(0.66 0.02 260);
+    --color-border: oklch(0.37 0.02 260);
+  }
+  html {
+    @apply antialiased;
+  }
+  body {
+    @apply bg-[var(--color-surface)] text-[var(--color-ink)];
+  }
+}

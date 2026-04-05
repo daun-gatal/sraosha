@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -25,10 +26,33 @@ class ConnectionCreate(BaseModel):
     password: str | None = None
     token: str | None = None
     service_account_json: str | None = None
+    extra_params: dict[str, Any] | None = None
 
 
-class ConnectionUpdate(ConnectionCreate):
-    pass
+class ConnectionUpdate(BaseModel):
+    """Partial update; omit fields to leave unchanged. Non-empty secret fields rotate storage."""
+
+    name: str | None = None
+    server_type: str | None = None
+    description: str | None = None
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    schema_name: str | None = None
+    account: str | None = None
+    warehouse: str | None = None
+    role: str | None = None
+    catalog: str | None = None
+    http_path: str | None = None
+    project: str | None = None
+    dataset: str | None = None
+    location: str | None = None
+    path: str | None = None
+    username: str | None = None
+    password: str | None = None
+    token: str | None = None
+    service_account_json: str | None = None
+    extra_params: dict[str, Any] | None = None
 
 
 class ConnectionResponse(BaseModel):
@@ -50,6 +74,7 @@ class ConnectionResponse(BaseModel):
     location: str | None
     path: str | None
     username: str | None
+    extra_params: dict[str, Any] | None = None
     has_password: bool = False
     has_token: bool = False
     has_service_account_json: bool = False
@@ -62,3 +87,15 @@ class ConnectionResponse(BaseModel):
 class ConnectionListResponse(BaseModel):
     items: list[ConnectionResponse]
     total: int
+
+
+class ConnectionTestRequest(ConnectionCreate):
+    """Create-shaped body; name optional. Use existing_connection_id to merge DB secrets (edit)."""
+
+    name: str | None = None
+    existing_connection_id: uuid.UUID | None = None
+
+
+class ConnectionTestResponse(BaseModel):
+    ok: bool
+    message: str | None = None

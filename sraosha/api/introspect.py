@@ -105,11 +105,16 @@ class MySQLIntrospector(SchemaIntrospector):
             import pymysql
         except ImportError as exc:
             raise ImportError(
-                "pymysql is required for MySQL introspection. "
-                "Install it with: pip install 'sraosha[mysql]'"
+                "pymysql is required for MySQL / ClickHouse (MySQL wire) introspection "
+                "and should be installed with sraosha. Try: pip install pymysql"
             ) from exc
         self._conn = pymysql.connect(
-            host=host, port=port, database=database, user=user, password=password
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            charset="utf8mb4",
         )
 
     def test_connection(self) -> bool:
@@ -163,8 +168,7 @@ class DuckDBIntrospector(SchemaIntrospector):
             import duckdb
         except ImportError:
             raise ImportError(
-                "duckdb is required for DuckDB schema introspection. "
-                "Install it with: pip install duckdb"
+                "duckdb is required for DuckDB schema introspection and is bundled with sraosha."
             ) from None
 
         self._conn = duckdb.connect(path, read_only=True)
@@ -247,6 +251,11 @@ PG_TYPE_MAP: dict[str, str] = {
     "array": "array",
     "ARRAY": "array",
 }
+
+
+def map_sql_type_to_contract_field(sql_type: str) -> str:
+    """Map a database-native type string to a data contract field type."""
+    return _map_type(sql_type)
 
 
 def _map_type(raw_type: str) -> str:

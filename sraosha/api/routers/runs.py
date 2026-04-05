@@ -3,7 +3,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sraosha.api.deps import get_db
+from sraosha.models.dq_check import DQCheck
+from sraosha.models.dq_run import DQCheckRun
 from sraosha.models.run import ValidationRun
+from sraosha.schemas.data_quality import DQRunGlobalListResponse, DQRunListItem, DQRunResponse
 from sraosha.schemas.run import (
     RunListResponse,
     RunSummaryItem,
@@ -64,6 +67,32 @@ async def runs_summary(db: AsyncSession = Depends(get_db)):
         for row in rows
     ]
     return RunSummaryResponse(items=items)
+
+
+@router.get("/dq", response_model=DQRunGlobalListResponse)
+async def list_dq_runs_global(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    count_result = await db.execute(select(func.count()).select_from(DQCheckRun))
+    total = int(count_result.scalar() or 0)
+
+    result = await db.execute(
+        select(DQCheckRun, DQCheck.name)
+        .join(DQCheck, DQCheck.id == DQCheckRun.dq_check_id)
+        .order_by(DQCheckRun.run_at.desc(), DQCheckRun.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+    items = [
+        DQRunListItem(
+            **DQRunResponse.model_validate(run).model_dump(),
+            dq_check_name=name,
+        )
+        for run, name in result.all()
+    ]
+    return DQRunGlobalListResponse(items=items, total=total)
 
 
 @router.get("/{run_id}", response_model=ValidationRunResponse)

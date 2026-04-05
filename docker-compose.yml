@@ -1,5 +1,4 @@
-version: "3.9"
-
+# API, worker, and beat share one image: Python app + `frontend/dist` (UI at http://localhost:8000/app/).
 services:
   postgres:
     image: postgres:15
@@ -26,6 +25,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # Serves OpenAPI and the built SPA (`/` may redirect depending on app config; UI is under `/app/`).
     ports:
       - "8000:8000"
     env_file: .sraosha
@@ -41,7 +41,6 @@ services:
       sh -c "sraosha db && sraosha serve --host 0.0.0.0 --port 8000"
 
   # Celery: one `beat` (periodic tasks) + one or more `worker` replicas (scale `worker`).
-  # One-off task: docker compose exec worker celery -A sraosha.tasks.celery_app call sraosha.tasks.compliance_compute.compute_compliance_scores
   worker:
     build:
       context: .

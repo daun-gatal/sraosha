@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from psycopg2.extras import Json
 
 from sraosha.crypto import decrypt
-from sraosha.dq.runner import SodaCheckRunner
+from sraosha.dq.factory import get_dq_runner
 from sraosha.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -133,7 +133,7 @@ def run_dq_check(dq_check_id: str, triggered_by: str = "manual") -> dict:
         conn_params, server_type = _connection_row_to_params(conn_row)
 
         try:
-            runner = SodaCheckRunner()
+            runner = get_dq_runner()
             out = runner.run(data_source_name, server_type, conn_params, sodacl_yaml)
             results_json = json.loads(json.dumps(out.results, default=str))
             diagnostics_json = json.loads(json.dumps(out.diagnostics, default=str))

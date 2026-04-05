@@ -16,7 +16,8 @@ SODA_TYPE_MAP: dict[str, str] = {
     "duckdb": "duckdb",
     "mssql": "sqlserver",
     "athena": "athena",
-    "clickhouse": "clickhouse",
+    # Soda documents ClickHouse via MySQL wire protocol (soda-mysql).
+    "clickhouse": "mysql",
     "oracle": "oracle",
     "vertica": "vertica",
     "presto": "presto",
@@ -27,12 +28,41 @@ SODA_TYPE_MAP: dict[str, str] = {
     "db2": "db2",
     "spark": "spark",
     "fabric": "fabric",
-    "cloudsql": "postgres",
     "dask": "dask",
     "postgresql": "postgres",
 }
 
 SODA_CONNECTOR_TYPES: frozenset[str] = frozenset(SODA_TYPE_MAP.values())
+
+# Connection row / first-class API fields merged into scan params; not passed through to YAML again.
+_INTERNAL_CONN_PARAM_KEYS: frozenset[str] = frozenset(
+    {
+        "host",
+        "port",
+        "database",
+        "schema",
+        "username",
+        "password",
+        "account",
+        "warehouse",
+        "role",
+        "catalog",
+        "httpPath",
+        "project",
+        "dataset",
+        "path",
+        "location",
+        "token",
+        "service_account_json",
+        "region",
+        "s3_staging_dir",
+        "tenant_id",
+        "client_id",
+        "client_secret",
+        "workspace",
+        "lakehouse",
+    }
+)
 
 _DATA_SOURCE_NAME_RE = re.compile(r"^[a-z_][a-z_0-9]+$")
 
@@ -94,6 +124,17 @@ def _port_int(conn_params: dict) -> int | None:
     return int(p)
 
 
+def _merge_soda_passthrough(body: dict[str, Any], conn_params: dict[str, Any]) -> None:
+    """Merge Soda-only keys from connection ``extra_params`` (flattened into conn_params).
+
+    Non-internal keys override built-in YAML (e.g. ``charset`` / ``use_unicode`` for MySQL).
+    """
+    for k, v in conn_params.items():
+        if k in _INTERNAL_CONN_PARAM_KEYS or v is None:
+            continue
+        body[k] = v
+
+
 def _build_connection_dict(soda_type: str, conn_params: dict) -> dict[str, Any]:
     host = conn_params.get("host")
     port = _port_int(conn_params)
@@ -126,6 +167,8 @@ def _build_connection_dict(soda_type: str, conn_params: dict) -> dict[str, Any]:
             }
         )
     if soda_type == "mysql":
+        # mysql-connector-python defaults to charset "utf8", which many servers/drivers reject;
+        # utf8mb4 is the supported full Unicode charset for MySQL 5.5.3+.
         return _omit_none(
             {
                 "type": "mysql",
@@ -134,6 +177,8 @@ def _build_connection_dict(soda_type: str, conn_params: dict) -> dict[str, Any]:
                 "username": username,
                 "password": password,
                 "database": database,
+                "charset": "utf8mb4",
+                "use_unicode": True,
             }
         )
     if soda_type == "bigquery":
@@ -169,6 +214,7 @@ def _build_connection_dict(soda_type: str, conn_params: dict) -> dict[str, Any]:
                 "username": username,
                 "password": password,
                 "database": database,
+                "schema": schema,
             }
         )
     if soda_type == "spark":
@@ -219,28 +265,20 @@ def _build_connection_dict(soda_type: str, conn_params: dict) -> dict[str, Any]:
                 "schema": schema,
             }
         )
-    if soda_type == "clickhouse":
-        return _omit_none(
-            {
-                "type": "clickhouse",
-                "host": host,
-                "port": port or 8123,
-                "username": username,
-                "password": password,
-                "database": database,
-            }
-        )
     if soda_type == "oracle":
-        return _omit_none(
-            {
-                "type": "oracle",
-                "host": host,
-                "port": port or 1521,
-                "username": username,
-                "password": password,
-                "database": database,
-            }
-        )
+        o: dict[str, Any] = {"type": "oracle", "username": username, "password": password}
+        cs = conn_params.get("connectstring")
+        if cs:
+            o["connectstring"] = cs
+        else:
+            o["host"] = host
+            o["port"] = port or 1521
+            sn = conn_params.get("service_name")
+            if sn:
+                o["service_name"] = sn
+            elif database:
+                o["service_name"] = database
+        return _omit_none(o)
     if soda_type == "vertica":
         return _omit_none(
             {
@@ -300,12 +338,17 @@ def _build_connection_dict(soda_type: str, conn_params: dict) -> dict[str, Any]:
             }
         )
     if soda_type == "motherduck":
+        dbn = (database or path or "").strip() or "md"
+        tok = (token or "").strip()
+        md_uri = f"md:{dbn}?motherduck_token={tok}" if tok else dbn
+        read_only = conn_params.get("read_only")
+        if read_only is None:
+            read_only = True
         return _omit_none(
             {
-                "type": "motherduck",
-                "token": token,
-                "database": database or path,
-                "schema": schema,
+                "type": "duckdb",
+                "database": md_uri,
+                "read_only": read_only,
             }
         )
     if soda_type == "db2":
@@ -340,6 +383,7 @@ def build_datasource_config(data_source_name: str, server_type: str, conn_params
     soda_type = SODA_TYPE_MAP.get(server_type, server_type)
     safe_name = sanitize_data_source_name(data_source_name)
     body = _build_connection_dict(soda_type, conn_params)
+    _merge_soda_passthrough(body, conn_params)
     root = {f"data_source {safe_name}": body}
     return cast(
         str,

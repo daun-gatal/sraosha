@@ -1,15 +1,15 @@
 # Sraosha architecture
 
-This document describes how the [`sraosha/`](sraosha) Python package is structured and how the main components interact. For product goals and contributor notes, see [INSTRUCTIONS.md](INSTRUCTIONS.md).
+This document describes how the [`sraosha/`](sraosha) Python package is structured and how the main components interact. For product goals and contributor notes, see [README.md](README.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## System context
 
-Sraosha is a **self-hosted** service: a FastAPI application (JSON API + Jinja2 UI), optional **Celery** workers for scheduled jobs, **PostgreSQL** for persistence, and **Redis** as the Celery broker/backend. Contract validation uses **datacontract-cli**. Optional **Soda Core** checks (installed separately) power the data-quality module against configured database connections.
+Sraosha is a **self-hosted** service: a FastAPI application (JSON API + optional **React SPA** under `/app/` when `frontend/dist` is built), optional **Celery** workers for scheduled jobs, **PostgreSQL** for persistence, and **Redis** as the Celery broker/backend. Contract validation uses **datacontract-cli**. Optional **Soda Core** checks (installed separately) power the data-quality module against configured database connections.
 
 ```mermaid
 flowchart TB
   subgraph clients [Clients]
-    CLI[sraosha_CLI]
+    OpsCLI[Operator_CLI_serve_db_worker_beat]
     Browser[Browser]
     ExtHTTP[HTTP_clients]
   end
@@ -27,7 +27,7 @@ flowchart TB
     Soda[Soda_Core_optional]
     DS[(Customer_datasets)]
   end
-  CLI --> API
+  OpsCLI --> API
   Browser --> API
   ExtHTTP --> API
   API --> PG
@@ -45,7 +45,7 @@ The [`ContractEngine`](sraosha/core/engine.py) loads YAML via [`ContractLoader`]
 
 ```mermaid
 sequenceDiagram
-  participant Caller as Caller_CLI_API_or_embedded
+  participant Caller as Caller_API_scheduler_or_embedded
   participant Engine as ContractEngine
   participant Loader as ContractLoader
   participant Runner as ContractRunner
@@ -69,21 +69,20 @@ sequenceDiagram
   end
 ```
 
-## HTTP API and dashboard
+## HTTP API and SPA
 
-[`create_app()`](sraosha/api/app.py) mounts routers under `/api/v1` and HTML under `/ui`. `/` redirects to `/ui/`. OpenAPI is at `/docs` and `/redoc`.
+[`create_app()`](sraosha/api/app.py) mounts routers under `/api/v1` and serves the built SPA under `/app/` when present. `/` redirects to `/app/` or `/docs`. OpenAPI is at `/docs` and `/redoc`.
 
 | Prefix | Router module | Purpose |
 |--------|----------------|---------|
-| `/api/v1/teams` | [`teams`](sraosha/api/routers/teams.py) | Teams and compliance ownership |
+| `/api/v1/teams` | [`teams`](sraosha/api/routers/teams.py) | Teams |
 | `/api/v1/alerting-profiles` | [`alerting_profiles`](sraosha/api/routers/alerting_profiles.py) | Notification profiles |
+| `/api/v1/connections` | [`connections`](sraosha/api/routers/connections.py) | Stored connection credentials for validation and DQ |
 | `/api/v1/contracts` | [`contracts`](sraosha/api/routers/contracts.py) | Contract CRUD and validation triggers |
 | `/api/v1/runs` | [`runs`](sraosha/api/routers/runs.py) | Validation run history |
-| `/api/v1/compliance` | [`compliance`](sraosha/api/routers/compliance.py) | Team scores and trends |
-| `/api/v1/impact` | [`impact`](sraosha/api/routers/impact.py) | Dependency graph and impact analysis |
 | `/api/v1/schedules` | [`schedules`](sraosha/api/routers/schedules.py) | Validation schedules |
 | `/api/v1/data-quality` | [`data_quality`](sraosha/api/routers/data_quality.py) | DQ checks and runs (Soda) |
-| `/ui` | [`dashboard`](sraosha/api/routers/dashboard.py) | Jinja2 dashboard |
+| `/app/*` | [`spa`](sraosha/api/spa.py) | Static React build (`frontend/dist`) |
 
 Optional API authentication: if `API_KEY` is set in settings, routes using [`verify_api_key`](sraosha/api/deps.py) require the `X-API-Key` header.
 
@@ -95,33 +94,23 @@ Periodic tasks are defined in [`celery_app.py`](sraosha/tasks/celery_app.py):
 
 | Beat key | Task | Schedule |
 |----------|------|----------|
-| `compliance-compute-daily` | `sraosha.tasks.compliance_compute.compute_compliance_scores` | Daily |
 | `check-validation-schedules` | `sraosha.tasks.validation_scheduler.check_validation_schedules` | Every 60 seconds |
 | `check-dq-schedules` | `sraosha.tasks.dq_scheduler.check_dq_schedules` | Every 60 seconds |
 
 ## Data quality (Soda)
 
-[`sraosha/dq/`](sraosha/dq/) integrates **Soda Core** lazily: connectors are optional extras. DQ checks are stored per team/connection; runs are executed via Celery ([`dq_scan`](sraosha/tasks/dq_scan.py)) and exposed under `/api/v1/data-quality`. This is separate from datacontract-cli validation but complements it for database-native checks.
-
-## Impact analysis
-
-[`sraosha/impact/`](sraosha/impact/) builds a directed graph (NetworkX) from contract metadata and supports “what breaks if these fields change?” analysis via the impact API and `/ui/impact`.
-
-## Compliance scoring
-
-[`compliance/scoring.py`](sraosha/compliance/scoring.py) provides pure helpers for rolling windows and score math. [`compute_compliance_scores`](sraosha/tasks/compliance_compute.py) aggregates validation runs per team into `compliance_scores`.
+[`sraosha/dq/`](sraosha/dq/) integrates **Soda Core** lazily: install `soda-core` and the connector packages you need in your environment (they are not declared in `pyproject.toml`). DQ checks are stored per team/connection; runs are executed via Celery ([`dq_scan`](sraosha/tasks/dq_scan.py)) and exposed under `/api/v1/data-quality`. This is separate from datacontract-cli validation but complements it for database-native checks.
 
 ## Package map
 
 | Path | Role |
 |------|------|
 | [`sraosha/core/`](sraosha/core/) | Contract loading, validation runner, credentials resolution |
-| [`sraosha/api/`](sraosha/api/) | FastAPI app, routers, Jinja2 templates, contract YAML helpers |
+| [`sraosha/api/`](sraosha/api/) | FastAPI app, routers, SPA static mount, contract YAML helpers |
+| [`sraosha/services/`](sraosha/services/) | Shared domain helpers (DQ queries, schedules) |
 | [`sraosha/models/`](sraosha/models/) | SQLAlchemy models |
 | [`sraosha/schemas/`](sraosha/schemas/) | Pydantic request/response models |
 | [`sraosha/dq/`](sraosha/dq/) | Soda-backed DQ runner and check configuration |
-| [`sraosha/impact/`](sraosha/impact/) | Graph and impact analyzer |
-| [`sraosha/compliance/`](sraosha/compliance/) | Score helpers |
 | [`sraosha/alerting/`](sraosha/alerting/) | Slack, email, dispatch |
 | [`sraosha/tasks/`](sraosha/tasks/) | Celery app and task modules |
 | [`sraosha/cli/`](sraosha/cli/) | Typer CLI |
