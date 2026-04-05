@@ -1,4 +1,5 @@
-# API, worker, and beat share one image: Python app + `frontend/dist` (UI at http://localhost:8000/app/).
+# API, worker, and beat use the published app image from GHCR (same image as release workflow).
+# Pull before first run: `docker compose pull`. UI: http://localhost:8000/app/
 services:
   postgres:
     image: postgres:15
@@ -6,8 +7,6 @@ services:
       POSTGRES_USER: sraosha
       POSTGRES_PASSWORD: sraosha
       POSTGRES_DB: sraosha
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,17 +17,16 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/daun-gatal/sraosha:latest
     # Serves OpenAPI and the built SPA (`/` may redirect depending on app config; UI is under `/app/`).
     ports:
       - "8000:8000"
-    env_file: .sraosha
+    # Optional: copy .sraosha.example → .sraosha beside this file for API_KEY, ENCRYPTION_KEY, etc.
+    env_file:
+      - path: .sraosha
+        required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://sraosha:sraosha@postgres:5432/sraosha
       REDIS_URL: redis://redis:6379/0
@@ -42,10 +40,10 @@ services:
 
   # Celery: one `beat` (periodic tasks) + one or more `worker` replicas (scale `worker`).
   worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file: .sraosha
+    image: ghcr.io/daun-gatal/sraosha:latest
+    env_file:
+      - path: .sraosha
+        required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://sraosha:sraosha@postgres:5432/sraosha
       REDIS_URL: redis://redis:6379/0
@@ -55,10 +53,10 @@ services:
     command: ["sraosha", "worker", "--loglevel", "info", "--hostname", "worker@%h"]
 
   beat:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file: .sraosha
+    image: ghcr.io/daun-gatal/sraosha:latest
+    env_file:
+      - path: .sraosha
+        required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://sraosha:sraosha@postgres:5432/sraosha
       REDIS_URL: redis://redis:6379/0
