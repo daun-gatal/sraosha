@@ -1,15 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 function isDarkMode(): boolean {
   return document.documentElement.classList.contains('dark')
 }
 
 export function ThemeToggle() {
-  const [dark, setDark] = useState(false)
-
-  useEffect(() => {
-    setDark(isDarkMode())
-  }, [])
+  const [dark, setDark] = useState(() => isDarkMode())
 
   const toggle = () => {
     const root = document.documentElement

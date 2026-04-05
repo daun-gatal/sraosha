@@ -87,25 +87,30 @@ export function SchedulesPage() {
     const contractId = searchParams.get('contractId')
     const checkId = searchParams.get('checkId')
     if (focus === 'contract' && contractId) {
-      setSectionTab('contract')
-      setModal({
-        open: true,
-        mode: 'create',
-        resource: 'contract',
-        preselectContractId: contractId,
-      })
-      setSearchParams({}, { replace: true })
-      return
+      const t = window.setTimeout(() => {
+        setSectionTab('contract')
+        setModal({
+          open: true,
+          mode: 'create',
+          resource: 'contract',
+          preselectContractId: contractId,
+        })
+        setSearchParams({}, { replace: true })
+      }, 0)
+      return () => window.clearTimeout(t)
     }
     if (focus === 'dq' && checkId) {
-      setSectionTab('data_quality')
-      setModal({
-        open: true,
-        mode: 'create',
-        resource: 'data_quality',
-        preselectDqCheckId: checkId,
-      })
-      setSearchParams({}, { replace: true })
+      const t = window.setTimeout(() => {
+        setSectionTab('data_quality')
+        setModal({
+          open: true,
+          mode: 'create',
+          resource: 'data_quality',
+          preselectDqCheckId: checkId,
+        })
+        setSearchParams({}, { replace: true })
+      }, 0)
+      return () => window.clearTimeout(t)
     }
   }, [searchParams, setSearchParams])
 

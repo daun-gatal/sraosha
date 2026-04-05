@@ -135,7 +135,10 @@ function ContractNewForm(props: {
     queryKey: ['connections'],
     queryFn: () => apiGet<{ items: ConnRow[] }>('/api/v1/connections').then((r) => r.items),
   })
-  const connections = connectionsQuery.data ?? []
+  const connections = useMemo(
+    () => connectionsQuery.data ?? [],
+    [connectionsQuery.data],
+  )
 
   const [contractIdInput, setContractIdInput] = useState('')
   const [title, setTitle] = useState('')
@@ -650,7 +653,10 @@ function ContractEditForm(props: {
     queryKey: ['connections'],
     queryFn: () => apiGet<{ items: ConnRow[] }>('/api/v1/connections').then((r) => r.items),
   })
-  const connections = connectionsQuery.data ?? []
+  const connections = useMemo(
+    () => connectionsQuery.data ?? [],
+    [connectionsQuery.data],
+  )
 
   const [connectionId, setConnectionId] = useState('')
   const [schemaOverride, setSchemaOverride] = useState<string | null>(null)

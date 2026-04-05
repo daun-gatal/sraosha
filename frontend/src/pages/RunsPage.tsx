@@ -92,32 +92,37 @@ export function RunsPage() {
 
     const tabParam = searchParams.get('tab')
 
-    if (tabParam === 'dq') {
-      const checkId = searchParams.get('checkId')
-      if (!checkId) {
+    // Defer state updates so we do not set state synchronously in the effect body (eslint react-hooks/set-state-in-effect).
+    const t = window.setTimeout(() => {
+      if (tabParam === 'dq') {
+        const checkId = searchParams.get('checkId')
+        if (!checkId) {
+          setSearchParams({}, { replace: true })
+          return
+        }
+        const checkName = searchParams.get('checkName') ?? ''
+        setTab('dq')
+        setSelected({
+          kind: 'dq',
+          checkId,
+          runId,
+          checkName: checkName || 'Check',
+        })
         setSearchParams({}, { replace: true })
         return
       }
-      const checkName = searchParams.get('checkName') ?? ''
-      setTab('dq')
-      setSelected({
-        kind: 'dq',
-        checkId,
-        runId,
-        checkName: checkName || 'Check',
-      })
-      setSearchParams({}, { replace: true })
-      return
-    }
 
-    if (tabParam === 'validation' || tabParam === null) {
-      setTab('validation')
-      setSelected({ kind: 'validation', id: runId })
-      setSearchParams({}, { replace: true })
-      return
-    }
+      if (tabParam === 'validation' || tabParam === null) {
+        setTab('validation')
+        setSelected({ kind: 'validation', id: runId })
+        setSearchParams({}, { replace: true })
+        return
+      }
 
-    setSearchParams({}, { replace: true })
+      setSearchParams({}, { replace: true })
+    }, 0)
+
+    return () => window.clearTimeout(t)
   }, [searchParams, setSearchParams])
 
   const contractsQ = useQuery({
