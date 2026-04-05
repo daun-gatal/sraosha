@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.1] - 2026-04-05
+
+### Added
+
+- **Bundled React SPA** under [`sraosha/web/dist`](sraosha/web/) so `pip install sraosha` includes the UI; [`spa`](sraosha/api/spa.py) prefers packaged assets, then `frontend/dist` for local checkouts.
+- **[`scripts/sync-web-dist.sh`](scripts/sync-web-dist.sh)** and **`make sync-web-dist`** to build the frontend and copy output into `sraosha/web/dist` (and `frontend/dist`).
+
+### Changed
+
+- **CI** and **PyPI release** workflows run `sync-web-dist.sh` before `uv build`.
+- **Docker image** copies the Node build to `sraosha/web/dist` (same layout as the wheel).
+- **Documentation** ([README](README.md), [CONTRIBUTING](CONTRIBUTING.md), [ARCHITECTURE](ARCHITECTURE.md)) updated for the bundled UI workflow.
+
 ## [v0.2.0] - 2026-04-05
 
 ### Added

@@ -146,6 +146,12 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v4
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build SPA into sraosha/web/dist
+        run: bash scripts/sync-web-dist.sh
+
       - name: Verify version matches pyproject.toml
         env:
           EXPECT: ${{ needs.tag-and-release.outputs.version_number }}

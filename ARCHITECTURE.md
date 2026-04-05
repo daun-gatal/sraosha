@@ -4,7 +4,7 @@ This document describes how the [`sraosha/`](sraosha) Python package is structur
 
 ## System context
 
-Sraosha is a **self-hosted** service: a FastAPI application (JSON API + optional **React SPA** under `/app/` when `frontend/dist` is built), optional **Celery** workers for scheduled jobs, **PostgreSQL** for persistence, and **Redis** as the Celery broker/backend. Contract validation uses **datacontract-cli**. Optional **Soda Core** checks (installed separately) power the data-quality module against configured database connections.
+Sraosha is a **self-hosted** service: a FastAPI application (JSON API + optional **React SPA** under `/app/` when `sraosha/web/dist` or `frontend/dist` is present), optional **Celery** workers for scheduled jobs, **PostgreSQL** for persistence, and **Redis** as the Celery broker/backend. Contract validation uses **datacontract-cli**. Optional **Soda Core** checks (installed separately) power the data-quality module against configured database connections.
 
 ```mermaid
 flowchart TB
@@ -82,7 +82,7 @@ sequenceDiagram
 | `/api/v1/runs` | [`runs`](sraosha/api/routers/runs.py) | Validation run history |
 | `/api/v1/schedules` | [`schedules`](sraosha/api/routers/schedules.py) | Validation schedules |
 | `/api/v1/data-quality` | [`data_quality`](sraosha/api/routers/data_quality.py) | DQ checks and runs (Soda) |
-| `/app/*` | [`spa`](sraosha/api/spa.py) | Static React build (`frontend/dist`) |
+| `/app/*` | [`spa`](sraosha/api/spa.py) | Static React build (`sraosha/web/dist` in the wheel, or `frontend/dist` in a checkout) |
 
 Optional API authentication: if `API_KEY` is set in settings, routes using [`verify_api_key`](sraosha/api/deps.py) require the `X-API-Key` header.
 

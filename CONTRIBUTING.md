@@ -33,7 +33,7 @@ make start
 
 ### Web UI (React)
 
-The SPA lives in `frontend/` (Bun + Vite). `make start` / `make serve` run `bun install` and `bun run build` before `sraosha serve`. Use `make frontend` for Vite-only dev on :5173. The API serves the built app under `/app/` when `frontend/dist/` exists.
+The SPA lives in `frontend/` (Bun + Vite). `make start` / `make serve` run `make sync-web-dist` (which calls `scripts/sync-web-dist.sh`: build + copy into `sraosha/web/dist` and `frontend/dist`) before `sraosha serve`. Use `make frontend` for Vite-only dev on :5173. The API serves the built app under `/app/` from bundled `sraosha/web/dist` (wheel) or `frontend/dist` (checkout). CI and PyPI builds run `scripts/sync-web-dist.sh` before `uv build`.
 
 ## Running Tests
 

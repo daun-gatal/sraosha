@@ -106,6 +106,12 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v4
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build SPA into sraosha/web/dist
+        run: bash scripts/sync-web-dist.sh
+
       - name: Build
         run: uv build
 
