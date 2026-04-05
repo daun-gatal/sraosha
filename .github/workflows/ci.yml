@@ -1,7 +1,6 @@
 name: CI
 
 on:
-  push:
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -192,4 +191,4 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
 
       - name: Run Grype vulnerability scanner
-        run: grype dir:. --fail-on high
+        run: grype dir:. -c .grype.yaml --fail-on high

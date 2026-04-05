@@ -138,8 +138,12 @@ async def list_schedules(
 
     items.sort(key=lambda s: s.next_run_at)
 
-    contract_ids = list({i.contract_id for i in items if i.schedule_type == "contract" and i.contract_id})
-    dq_ids = list({i.dq_check_id for i in items if i.schedule_type == "data_quality" and i.dq_check_id})
+    contract_ids = list(
+        {i.contract_id for i in items if i.schedule_type == "contract" and i.contract_id}
+    )
+    dq_ids = list(
+        {i.dq_check_id for i in items if i.schedule_type == "data_quality" and i.dq_check_id}
+    )
     val_by_contract = await _latest_validation_run_ids(db, contract_ids)
     dq_by_check = await _latest_dq_run_ids(db, dq_ids)
 
