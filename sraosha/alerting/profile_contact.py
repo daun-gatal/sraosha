@@ -1,4 +1,4 @@
-"""Resolve display contact fields from an alerting profile (for compliance API)."""
+"""Resolve display contact fields from an alerting profile (e.g. API summaries)."""
 
 from __future__ import annotations
 

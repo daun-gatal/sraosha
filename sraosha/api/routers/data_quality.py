@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.orm import selectinload
 
 from sraosha.api.deps import get_db
+from sraosha.dq.check_templates import TEMPLATES
 from sraosha.models.alerting import AlertingProfile
 from sraosha.models.connection import Connection
 from sraosha.models.dq_check import DQCheck
@@ -20,10 +21,19 @@ from sraosha.schemas.data_quality import (
     DQCheckCreate,
     DQCheckListResponse,
     DQCheckResponse,
+    DQCheckTemplateItem,
+    DQCheckTemplateListResponse,
     DQCheckUpdate,
+    DQPreviewSodaCLRequest,
+    DQPreviewSodaCLResponse,
     DQRunListResponse,
     DQRunResponse,
     DQSummaryResponse,
+)
+from sraosha.services.data_quality import (
+    bucket_latest_dq_status,
+    dq_check_to_response,
+    dq_checks_list_statement,
 )
 from sraosha.tasks.dq_scan import run_dq_check
 
@@ -35,92 +45,14 @@ class DQCheckDetailPayload(BaseModel):
     recent_runs: list[DQRunResponse]
 
 
-def _list_stmt():
-    run_count_sub = (
-        select(
-            DQCheckRun.dq_check_id.label("cid"),
-            func.count(DQCheckRun.id).label("cnt"),
-        )
-        .group_by(DQCheckRun.dq_check_id)
-        .subquery()
-    )
-    latest_sub = (
-        select(
-            DQCheckRun.dq_check_id.label("cid"),
-            func.max(DQCheckRun.run_at).label("latest_at"),
-        )
-        .group_by(DQCheckRun.dq_check_id)
-        .subquery()
-    )
-    latest_run = aliased(DQCheckRun)
-    return (
-        select(DQCheck, latest_run, run_count_sub.c.cnt)
-        .outerjoin(latest_sub, latest_sub.c.cid == DQCheck.id)
-        .outerjoin(
-            latest_run,
-            (latest_run.dq_check_id == DQCheck.id) & (latest_run.run_at == latest_sub.c.latest_at),
-        )
-        .outerjoin(run_count_sub, run_count_sub.c.cid == DQCheck.id)
-        .options(selectinload(DQCheck.team), selectinload(DQCheck.alerting_profile))
-        .order_by(DQCheck.name.asc())
-    )
-
-
-def _to_check_response(
-    check: DQCheck,
-    latest: DQCheckRun | None,
-    run_count: int | None,
-) -> DQCheckResponse:
-    rc = int(run_count or 0)
-    latest_status = latest.status if latest else None
-    pass_rate: float | None = None
-    if latest and latest.checks_total > 0:
-        pass_rate = latest.checks_passed / latest.checks_total
-    return DQCheckResponse(
-        id=check.id,
-        name=check.name,
-        description=check.description,
-        connection_id=check.connection_id,
-        team_id=check.team_id,
-        alerting_profile_id=check.alerting_profile_id,
-        owner_team=check.owner_team,
-        data_source_name=check.data_source_name,
-        sodacl_yaml=check.sodacl_yaml,
-        tables=list(check.tables or []),
-        check_categories=list(check.check_categories or []),
-        is_enabled=check.is_enabled,
-        tags=list(check.tags or []),
-        created_at=check.created_at,
-        updated_at=check.updated_at,
-        latest_status=latest_status,
-        pass_rate=pass_rate,
-        run_count=rc,
-    )
-
-
-def _bucket_latest(status: str | None) -> str:
-    if status is None:
-        return "error"
-    s = status.lower()
-    if s in ("passed", "pass", "success", "ok"):
-        return "healthy"
-    if "warn" in s:
-        return "warning"
-    if s in ("failed", "fail"):
-        return "failed"
-    if s in ("error", "errored"):
-        return "error"
-    return "error"
-
-
 @router.get("", response_model=DQCheckListResponse)
 async def list_dq_checks(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(_list_stmt())
+    result = await db.execute(dq_checks_list_statement())
     seen: dict[uuid.UUID, DQCheckResponse] = {}
     for check, latest, cnt in result.all():
         if check.id in seen:
             continue
-        seen[check.id] = _to_check_response(check, latest, cnt)
+        seen[check.id] = dq_check_to_response(check, latest, cnt)
     items = list(seen.values())
     return DQCheckListResponse(items=items, total=len(items))
 
@@ -163,12 +95,12 @@ async def create_dq_check(body: DQCheckCreate, db: AsyncSession = Depends(get_db
         .options(selectinload(DQCheck.team), selectinload(DQCheck.alerting_profile))
     )
     check = result.scalar_one()
-    return _to_check_response(check, None, 0)
+    return dq_check_to_response(check, None, 0)
 
 
 @router.get("/summary", response_model=DQSummaryResponse)
 async def dq_summary(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(_list_stmt())
+    result = await db.execute(dq_checks_list_statement())
     seen: dict[uuid.UUID, DQCheckRun | None] = {}
     for check, latest, _cnt in result.all():
         if check.id not in seen:
@@ -177,7 +109,7 @@ async def dq_summary(db: AsyncSession = Depends(get_db)):
     sum_passed = 0
     sum_total = 0
     for latest in seen.values():
-        b = _bucket_latest(latest.status if latest else None)
+        b = bucket_latest_dq_status(latest.status if latest else None)
         if b == "healthy":
             healthy += 1
         elif b == "warning":
@@ -202,6 +134,42 @@ async def dq_summary(db: AsyncSession = Depends(get_db)):
         error=error,
         overall_pass_rate=overall,
     )
+
+
+@router.get("/check-templates", response_model=DQCheckTemplateListResponse)
+async def list_dq_check_templates():
+    items: list[DQCheckTemplateItem] = []
+    for key, meta in TEMPLATES.items():
+        items.append(
+            DQCheckTemplateItem(
+                key=key,
+                label=meta["label"],
+                description=meta["description"],
+                category=meta.get("category", ""),
+                needs_column=meta.get("needs_column", False),
+                column_types=list(meta.get("column_types", [])),
+                params=list(meta.get("params", [])),
+                icon=meta.get("icon", ""),
+                soda_section=int(meta.get("soda_section", 0)),
+            )
+        )
+    return DQCheckTemplateListResponse(items=items)
+
+
+@router.post("/preview-sodacl", response_model=DQPreviewSodaCLResponse)
+async def preview_dq_sodacl(body: DQPreviewSodaCLRequest):
+    key = body.template_key.strip()
+    if key not in TEMPLATES:
+        raise HTTPException(status_code=404, detail="Unknown template_key")
+    meta = TEMPLATES[key]
+    gen = meta["generate"]
+    try:
+        yaml_str = gen(body.table.strip(), body.column, **body.params)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TypeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return DQPreviewSodaCLResponse(sodacl_yaml=yaml_str)
 
 
 @router.get("/{check_id}", response_model=DQCheckDetailPayload)
@@ -237,7 +205,7 @@ async def get_dq_check(check_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     recent = runs_result.scalars().all()
 
     return DQCheckDetailPayload(
-        check=_to_check_response(check, latest, run_count),
+        check=dq_check_to_response(check, latest, run_count),
         recent_runs=[DQRunResponse.model_validate(r) for r in recent],
     )
 
@@ -294,7 +262,7 @@ async def update_dq_check(
         .limit(1)
     )
     latest = latest_result.scalar_one_or_none()
-    return _to_check_response(check, latest, run_count)
+    return dq_check_to_response(check, latest, run_count)
 
 
 @router.delete("/{check_id}", status_code=204)

@@ -5,7 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v0.2.0] - 2026-04-05
+
+### Added
+
+- **React SPA** in `frontend/` (Bun + Vite), built into `frontend/dist` and served by FastAPI under `/app/` with [`spa`](sraosha/api/spa.py); `/` redirects to `/app/` when the build is present.
+- **Connections API** at `/api/v1/connections` ([`connections`](sraosha/api/routers/connections.py)) for stored database credentials used by validation and DQ.
+- **Centralized HTTP exception handling** via [`error_handlers`](sraosha/api/error_handlers.py) (consistent JSON errors and CORS behavior).
+- **DQ layer refactor**: [`factory`](sraosha/dq/factory.py), [`protocol`](sraosha/dq/protocol.py), [`backends/`](sraosha/dq/backends/), [`result`](sraosha/dq/result.py) for pluggable Soda-backed execution.
+- **Shared domain helpers** under [`services/`](sraosha/services/) and introspection-related schemas where applicable.
+- **CI** job to install, lint, and build the frontend with **Bun** (runs after Python lint).
+- **Alembic** migration `002` to drop `compliance_scores` when upgrading from earlier schemas.
+
+### Changed
+
+- **API surface** is JSON + OpenAPI (`/docs`, `/redoc`) plus the SPA; operational workflows use the UI or HTTP clients directly.
+- **Docker image** builds the UI in a **Node** stage and copies `frontend/dist` into the Python image (single container for API + static assets).
+- **Persistence** no longer includes team compliance scores; focus is contracts, runs, teams, schedules, connections, DQ metadata, and alerts.
+
+### Removed
+
+- **Team compliance scoring** (API, models, Celery `compute_compliance_scores` task, and related modules); `compliance_scores` table removed by migration `002`.
+- **Impact and lineage** (packages, graph/analyze API, and dashboard views).
+- **Jinja2 server-rendered UI** (`/ui`, template tree under `sraosha/api/templates/`).
+- **CLI commands** `run`, `register`, `status`, `history`, and `impact`; the CLI now exposes `serve`, `worker`, `beat`, `db`, and `version` only ([`cli/main`](sraosha/cli/main.py)).
+- **Demo seed scripts** under `scripts/` and tests tied to removed features.
 
 ## [v0.1.2] - 2026-04-03
 

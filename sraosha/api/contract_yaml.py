@@ -345,6 +345,24 @@ def yaml_string_to_dict(raw: str) -> dict:
     return result
 
 
+def merge_spec_and_info_version(
+    raw_yaml: str,
+    spec_version: str | None,
+    info_version: str | None,
+) -> str:
+    """Update dataContractSpecification and info.version in stored contract YAML."""
+    doc = yaml_string_to_dict(raw_yaml)
+    if spec_version is not None:
+        doc["dataContractSpecification"] = spec_version
+    if info_version is not None:
+        info = doc.get("info")
+        if not isinstance(info, dict):
+            info = {}
+            doc["info"] = info
+        info["version"] = info_version
+    return dict_to_yaml_string(doc)
+
+
 def build_raw_yaml_from_form(
     form: dict[str, Any],
     connection_id_to_name: dict[str, str] | None = None,

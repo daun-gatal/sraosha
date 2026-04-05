@@ -1,39 +1,32 @@
-# Sraosha configuration file
-# Copy to .sraosha and adjust values:
-#   cp .sraosha.example .sraosha
-#
-# Resolution order:
-#   1. CLI flag:     sraosha --config /path/to/.sraosha serve
-#   2. Env var:      SRAOSHA_CONFIG=/path/to/.sraosha sraosha serve
-#   3. CWD:          .sraosha in the current directory
-#   4. Home:         ~/.sraosha
-#   5. Defaults:     built-in defaults
-#
-# Environment variables always override file values.
+# Copy to .sraosha:  cp .sraosha.example .sraosha
+# Resolution: --config, SRAOSHA_CONFIG, ./.sraosha, ~/.sraosha — env vars override this file.
+# Every key below matches SraoshaSettings in sraosha/config.py (same names as environment variables).
 
-# === Database ===
+# --- Database & broker ---
 DATABASE_URL=postgresql+asyncpg://sraosha:sraosha@localhost:5432/sraosha
-
-# === Redis (Celery) ===
 REDIS_URL=redis://localhost:6379/0
 
-# === API ===
+# --- API server ---
 API_HOST=0.0.0.0
 API_PORT=8000
-# API_KEY=
+API_KEY=
+CORS_ALLOWED_ORIGINS=*
 
-# === Contracts ===
+# --- Contracts (defaults for YAML / engine) ---
 CONTRACTS_DIR=./contracts
 DEFAULT_ENFORCEMENT_MODE=block
 
-# === Slack Alerting ===
+# --- Slack alerting (SlackAlerter; requires SLACK_ENABLED=true and webhook) ---
 SLACK_ENABLED=false
-# SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ
+SLACK_WEBHOOK_URL=
 
-# === Email Alerting ===
+# --- Email alerting (EmailAlerter; requires EMAIL_ENABLED=true and SMTP_*) ---
 EMAIL_ENABLED=false
-# SMTP_HOST=smtp.gmail.com
-# SMTP_PORT=587
-# SMTP_USERNAME=your@email.com
-# SMTP_PASSWORD=your-app-password
-# SMTP_FROM=sraosha@yourcompany.com
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM=
+
+# --- Connection credential encryption (set in production; empty uses dev-only key) ---
+ENCRYPTION_KEY=

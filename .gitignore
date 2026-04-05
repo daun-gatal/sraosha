@@ -31,6 +31,17 @@ coverage.xml
 .sraosha
 .env
 
+# Celery beat (local schedule database file)
+celerybeat-schedule
+celerybeat-schedule.db
+
+# make start / make stop
+.sraosha-start.pids
+.sraosha-start-api.log
+.sraosha-start-worker.log
+.sraosha-start-beat.log
+.dev-all.pids
+
 # IDE
 .idea/
 .vscode/
@@ -44,3 +55,7 @@ Thumbs.db
 
 # uv
 .python-version
+
+# Frontend (see also frontend/.gitignore)
+frontend/node_modules/
+frontend/dist/

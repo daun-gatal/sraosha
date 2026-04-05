@@ -39,6 +39,7 @@ class ScheduleListItem(BaseModel):
     cron_expression: str | None = None
     next_run_at: datetime
     last_run_at: datetime | None = None
+    last_run_id: uuid.UUID | None = None
 
 
 class ScheduleListResponse(BaseModel):

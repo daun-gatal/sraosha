@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from celery import Celery
 
 from sraosha.config import settings
@@ -9,7 +7,6 @@ celery_app = Celery(
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
     include=[
-        "sraosha.tasks.compliance_compute",
         "sraosha.tasks.validation_scheduler",
         "sraosha.tasks.dq_scan",
         "sraosha.tasks.dq_scheduler",
@@ -23,10 +20,6 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     beat_schedule={
-        "compliance-compute-daily": {
-            "task": "sraosha.tasks.compliance_compute.compute_compliance_scores",
-            "schedule": timedelta(days=1),
-        },
         "check-validation-schedules": {
             "task": "sraosha.tasks.validation_scheduler.check_validation_schedules",
             "schedule": 60,

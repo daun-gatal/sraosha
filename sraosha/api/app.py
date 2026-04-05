@@ -2,31 +2,35 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
+from sraosha.api.error_handlers import add_exception_handlers, cors_allow_origins
 from sraosha.api.routers import (
     alerting_profiles,
-    compliance,
+    connections,
     contracts,
-    dashboard,
     data_quality,
-    impact,
     runs,
     schedules,
     teams,
 )
+from sraosha.api.spa import mount_spa
+from sraosha.config import settings
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Sraosha API",
         description="Governance runtime for data contracts",
-        version="0.1.2",
+        version="0.2.0",
         docs_url="/docs",
         redoc_url="/redoc",
+        openapi_url="/openapi.json",
     )
+
+    add_exception_handlers(app)
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_allow_origins(settings.CORS_ALLOWED_ORIGINS),
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -35,16 +39,18 @@ def create_app() -> FastAPI:
     app.include_router(
         alerting_profiles.router, prefix="/api/v1/alerting-profiles", tags=["Alerting profiles"]
     )
+    app.include_router(connections.router, prefix="/api/v1/connections", tags=["Connections"])
     app.include_router(contracts.router, prefix="/api/v1/contracts", tags=["Contracts"])
     app.include_router(runs.router, prefix="/api/v1/runs", tags=["Runs"])
-    app.include_router(compliance.router, prefix="/api/v1/compliance", tags=["Compliance"])
-    app.include_router(impact.router, prefix="/api/v1/impact", tags=["Impact"])
     app.include_router(schedules.router, prefix="/api/v1/schedules", tags=["Schedules"])
     app.include_router(data_quality.router, prefix="/api/v1/data-quality", tags=["Data Quality"])
-    app.include_router(dashboard.router, prefix="/ui", tags=["Dashboard"])
+
+    spa_dist = mount_spa(app)
 
     @app.get("/", include_in_schema=False)
     async def root_redirect():
-        return RedirectResponse(url="/ui/")
+        if spa_dist is not None:
+            return RedirectResponse(url="/app/")
+        return RedirectResponse(url="/docs")
 
     return app

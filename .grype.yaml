@@ -1,0 +1,36 @@
+# Grype ignore list for `grype dir:.` in CI. Transitive or tooling advisories we
+# accept until dependency pins / upstream releases allow a safe upgrade.
+# Revisit when bumping pyproject.toml / lockfile or GitHub Actions versions.
+ignore:
+  - vulnerability: GHSA-hgjp-83m4-h4fj
+    reason: "mysql-connector-python pinned; evaluate upgrade to 9.x with Soda/stack compatibility"
+
+  - vulnerability: GHSA-8gq9-2x98-w8hf
+    reason: "protobuf transitive pin; upgrade with parent packages"
+
+  - vulnerability: GHSA-7gcm-g887-7qv7
+    reason: "protobuf transitive pin; upgrade with parent packages"
+
+  - vulnerability: GHSA-8qvm-5x2c-j2w7
+    reason: "protobuf transitive pin; upgrade with parent packages"
+
+  - vulnerability: GHSA-5pwr-322w-8jr4
+    reason: "pyopenssl transitive; upgrade when cryptography/openssl stack allows"
+
+  - vulnerability: GHSA-vp96-hxj8-p424
+    reason: "pyopenssl transitive; low severity; track with stack updates"
+
+  - vulnerability: GHSA-r6ph-v2qm-q3c2
+    reason: "cryptography transitive; upgrade to 46.x when validated"
+
+  - vulnerability: GHSA-m959-cc7f-wv43
+    reason: "cryptography transitive; low severity; track with stack updates"
+
+  - vulnerability: GHSA-5239-wwwm-4pmq
+    reason: "pygments transitive; low severity"
+
+  - vulnerability: GHSA-gc5v-m9x4-r6x2
+    reason: "requests transitive; medium severity; track dependency upgrades"
+
+  - vulnerability: GHSA-vxmw-7h4f-hqxh
+    reason: "False positive from scanning .github workflow references; not bundled at runtime"

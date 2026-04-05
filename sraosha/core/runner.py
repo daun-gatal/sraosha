@@ -70,6 +70,21 @@ class ContractRunner:
         result_str = getattr(run_result, "result", "unknown")
         passed = result_str == "passed" if checks_total == 0 else checks_failed == 0
 
+        log_text = buf.getvalue()
+        if (not log_text or not log_text.strip()) and (failures or checks_total > 0):
+            lines = [
+                "Validation summary (engine log capture was empty):",
+                f"  datacontract result: {result_str}",
+                f"  checks: {checks_passed}/{checks_total} passed, {checks_failed} failed",
+            ]
+            for i, f in enumerate(failures, 1):
+                chk = f.get("check", "?")
+                msg = f.get("message", "")
+                field = f.get("field")
+                suffix = f" ({field})" if field else ""
+                lines.append(f"  {i}. {chk}{suffix}: {msg}")
+            log_text = "\n".join(lines) + "\n"
+
         return {
             "passed": passed,
             "checks_total": checks_total,
@@ -77,7 +92,7 @@ class ContractRunner:
             "checks_failed": checks_failed,
             "failures": failures,
             "duration_seconds": round(duration, 3),
-            "log": buf.getvalue(),
+            "log": log_text,
         }
 
 

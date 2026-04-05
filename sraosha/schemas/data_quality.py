@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class DQCheckCreate(BaseModel):
@@ -78,9 +79,32 @@ class DQRunResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("results_json", "diagnostics_json", mode="before")
+    @classmethod
+    def _normalize_json_payload(cls, v: Any) -> Any:
+        """DB / Soda may store [] or other JSON; API exposes dict | None."""
+        if v is None:
+            return None
+        if isinstance(v, dict):
+            return v
+        if isinstance(v, list):
+            return None if len(v) == 0 else {"items": v}
+        return None
+
 
 class DQRunListResponse(BaseModel):
     items: list[DQRunResponse]
+    total: int
+
+
+class DQRunListItem(DQRunResponse):
+    """DQ run row for global feeds (includes check display name)."""
+
+    dq_check_name: str
+
+
+class DQRunGlobalListResponse(BaseModel):
+    items: list[DQRunListItem]
     total: int
 
 
@@ -91,6 +115,33 @@ class DQSummaryResponse(BaseModel):
     failed: int
     error: int
     overall_pass_rate: float | None
+
+
+class DQCheckTemplateItem(BaseModel):
+    key: str
+    label: str
+    description: str
+    category: str
+    needs_column: bool
+    column_types: list[str]
+    params: list[dict[str, Any]]
+    icon: str = ""
+    soda_section: int = 0
+
+
+class DQCheckTemplateListResponse(BaseModel):
+    items: list[DQCheckTemplateItem]
+
+
+class DQPreviewSodaCLRequest(BaseModel):
+    template_key: str
+    table: str
+    column: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class DQPreviewSodaCLResponse(BaseModel):
+    sodacl_yaml: str
 
 
 class DQScheduleResponse(BaseModel):

@@ -8,74 +8,53 @@ Thank you for your interest in contributing to Sraosha! This guide will help you
 
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- Docker and Docker Compose (for running the full stack)
+- PostgreSQL and Redis (local install or any reachable instance; optional Docker Compose only if you want containers)
+- [Bun](https://bun.sh/) (for the SPA)
 
 ### Getting Started
 
 ```bash
-# Clone the repository
 git clone https://github.com/YOUR_ORG/sraosha.git
 cd sraosha
 
-# Create a virtual environment and install dependencies
-uv sync --extra dev
+make sync
+# or: uv sync --extra dev
 
-# Install pre-commit hooks
 uv run pre-commit install
 
-# Copy the config file
 cp .sraosha.example .sraosha
+# Edit .sraosha: DATABASE_URL and REDIS_URL must point at your Postgres and Redis.
 
-# Start infrastructure (PostgreSQL + Redis)
-docker compose up postgres redis -d
-
-# Run database migrations (Alembic upgrade head)
-uv run sraosha db
-
-# Start the API server
-uv run sraosha serve --reload
+make db
+make start
 ```
 
-### Dashboard Templates
+**`make start`** builds the SPA and starts the API (serves the built UI on :8000), a Celery **worker**, and **beat** in the background, with PIDs in `.sraosha-start.pids` and logs `.sraosha-start-*.log`. **`make stop`** stops those processes and anything listening on :8000 or :5173. **`make serve`** is the same build + API in the **foreground** (no worker/beat). Use **`make help`** for other targets (`frontend`, `lint`, …).
 
-The dashboard UI is built with Jinja2 templates in `sraosha/api/templates/`. When running the API with `--reload`, template changes are picked up automatically on page refresh -- no separate build step is needed.
+### Web UI (React)
+
+The SPA lives in `frontend/` (Bun + Vite). `make start` / `make serve` run `bun install` and `bun run build` before `sraosha serve`. Use `make frontend` for Vite-only dev on :5173. The API serves the built app under `/app/` when `frontend/dist/` exists.
 
 ## Running Tests
 
 ```bash
-# Unit tests
-uv run pytest tests/unit/ -v
-
-# Unit tests with coverage
-uv run pytest tests/unit/ -v --cov=sraosha --cov-report=html
-
-# All tests (requires Docker services running)
-uv run pytest tests/ -v
+make test
+# or: uv run pytest tests/unit/ -v   # faster subset
 ```
 
 ## Code Quality
 
 ```bash
-# Lint
-uv run ruff check sraosha/ tests/
-
-# Format
-uv run ruff format sraosha/ tests/
-
-# Type check
+make lint          # ruff check + format --check
+make fix           # ruff format + --fix
 uv run mypy sraosha/
-
-# Or use Make targets
-make lint
-make format
-make typecheck
 ```
 
 ## Making Changes
 
 1. Fork the repository and create a feature branch from `main`.
 2. Make your changes. Add tests for new functionality.
-3. Ensure all checks pass: `make lint && make test && make typecheck`
+3. Ensure checks pass: `make lint && make test && uv run mypy sraosha/`
 4. Commit your changes with a clear, descriptive message.
 5. Push your branch and open a pull request against `main`. CI (lint, type check, tests, package build, optional Docker build test when relevant paths change, Grype) runs on the PR. Publishing to PyPI and GHCR happens via the **Release** workflow when `CHANGELOG.md` / `Dockerfile` on `main` include a new version (see project maintainers’ release process).
 

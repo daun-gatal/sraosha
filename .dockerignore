@@ -11,9 +11,8 @@ htmlcov
 .coverage
 *.egg-info
 node_modules
-dashboard/node_modules
-dashboard/dist
-sraosha/static/dashboard
+frontend/node_modules
+frontend/dist
 .idea
 .vscode
 .DS_Store

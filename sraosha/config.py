@@ -45,6 +45,9 @@ class SraoshaSettings(BaseSettings):
     API_PORT: int = 8000
     API_KEY: str | None = None
 
+    #: Comma-separated browser origins for CORS, or ``*`` for all (dev-friendly default).
+    CORS_ALLOWED_ORIGINS: str = "*"
+
     CONTRACTS_DIR: str = "./contracts"
     DEFAULT_ENFORCEMENT_MODE: str = "block"
 

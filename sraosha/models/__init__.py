@@ -8,7 +8,7 @@ from sraosha.models.dq_run import DQCheckRun
 from sraosha.models.dq_schedule import DQSchedule
 from sraosha.models.run import ValidationRun
 from sraosha.models.schedule import ValidationSchedule
-from sraosha.models.team import ComplianceScore, Team
+from sraosha.models.team import Team
 
 __all__ = [
     "Base",
@@ -23,5 +23,4 @@ __all__ = [
     "AlertingProfile",
     "AlertingProfileChannel",
     "Team",
-    "ComplianceScore",
 ]
